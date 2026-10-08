@@ -102,6 +102,14 @@ tests and notebook exist, `pytest tests/mXX --solutions` passes, and
 
 - [x] PR #1 third review fixes: m01 `cumulative_logsumexp` no longer NaNs on leading -inf; m13 `predictive` draws observed sites at the observation's shape; `data.enzyme_kinetics` rejects n not a positive multiple of 8. Regression tests added. Fourth review pass: predictive broadcasts size-1 batch dimensions, docstrings state the new requirements, two troubleshooting rows, broader data-helper tests (m00 15, m01 19, m13 11 tests; suite 253)
 
+## Phase 11 — PR #1 deferred items (user request 2026-10-08)
+- [x] Speed: m09 `leapfrog` carries the gradient (L + 1 evaluations, not 2L; bit-identical results, churn `run_chains` 2.1 s -> 1.15 s) + count test via `jax.debug.callback`. Caching compiled `run_chains` programs (static `log_prob`) was tried and reverted in review: the jit cache kept ~19 MB per new target function alive (1.1 GB after 40 calls vs a 400 MB plateau); it still compiles once per call
+- [x] Duplication: m11 uses m07's `churn_log_joint` and `laplace` (copies deleted); m15a `init_conditioner` and m15b score net built on m14 `init_mlp` / `mlp(..., activation)`; Day 5 prerequisites name m14 Step 1
+- [x] `make_starter.py`: function extents from `ast`, stray markers are an error, dead header branch removed; output byte-identical on all 20 modules
+- [x] Page template: Day 5 Overviews open with "Why this module exists.", m00/m02 steps with "What this computes."; `check_site.py` now enforces both openers and the step-heading form
+- [x] Figures regenerated from an empty cache (only m11_hmc_vs_vi, m15a_*, m15b_* changed); m11, m15a, m15b worked-example numbers reconciled to the current code (m15a and m15b were already stale at db3d57e)
+- [x] Suite 254 pass with --solutions (144 s); check-starter 239 fail; `make build-site` OK (28 pages)
+
 ## Notes for resumption
 - Starter files are GENERATED: edit solutions/, then `python scripts/make_starter.py <module>`.
 - site/reference/troubleshooting-index.md and site/reference/references.md exist; extend per day.

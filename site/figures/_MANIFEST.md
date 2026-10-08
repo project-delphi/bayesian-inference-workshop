@@ -56,7 +56,7 @@ about two minutes).
 - m11_funnel_divergences.png — Posterior draws of (theta_1, log tau) from four adaptive HMC chains on the centred model (153 divergent transitions in red, ESS of log tau 59) and the non-centred model (0 divergences, ESS 1326); starts and keys are those of tests/m11.
 - m11_traces.png — Trace plots of log tau for four chains in the centred (split R-hat 1.07, never reaching the neck) and non-centred (R-hat 1.00) parameterisations.
 - m11_autocorrelation.png — Sample autocorrelation of an AR(1) chain with phi = 0.9 against the true 0.9^t, with Geyer's initial-positive-sequence truncation lag marked and tau = 19.
-- m11_hmc_vs_vi.png — Churn model: HMC against mean-field VI posterior standard deviations per coefficient, and HMC draws of (intercept, enterprise) with the axis-aligned 2-sd VI ellipse that misses the correlation of -0.45.
+- m11_hmc_vs_vi.png — Churn model: HMC against mean-field VI posterior standard deviations per coefficient, and HMC draws of (intercept, enterprise) with the axis-aligned 2-sd VI ellipse that misses the correlation of -0.46.
 - m11_funnel_chains.gif — eight HMC chains on the uplift model drawn as they run, centred chains collecting divergences above log tau = -2.5 while non-centred chains enter the neck.
 
 ## Module 12

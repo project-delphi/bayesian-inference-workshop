@@ -36,11 +36,12 @@ def init_mlp(key: Array, sizes: list[int]) -> list[dict[str, Array]]:
     return layers
 
 
-def mlp(params: list[dict[str, Array]], x: Array) -> Array:
-    """Apply the layers with tanh between them and no nonlinearity on the output."""
+def mlp(params: list[dict[str, Array]], x: Array, activation=jnp.tanh) -> Array:
+    """Apply the layers with `activation` (tanh by default) between them and no
+    nonlinearity on the output. Modules 15a and 15b reuse this network."""
     # [m14 step 1]
     for layer in params[:-1]:
-        x = jnp.tanh(x @ layer["w"] + layer["b"])
+        x = activation(x @ layer["w"] + layer["b"])
     return x @ params[-1]["w"] + params[-1]["b"]
 
 

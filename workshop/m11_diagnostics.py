@@ -3,7 +3,8 @@
 Split-R̂ and effective sample size following Gelman et al. (BDA3, Chapter 11) and
 Vehtari et al. (2021), divergence counting from the energy error, multi-chain runs via
 jax.vmap, and a quantitative comparison of an HMC posterior with a mean-field Gaussian
-variational fit on the same SaaS-churn logistic regression.
+variational fit on the same SaaS-churn logistic regression. The model and its Laplace
+reference are Module 7's `churn_log_joint` and `laplace`.
 
 Chains are always arrays of shape [m, n, d]: m chains, n draws, d coordinates.
 """
@@ -94,24 +95,3 @@ def compare_hmc_vs_vi(hmc_chains: Array, vi_loc: Array, vi_scale: Array) -> dict
                        mean-field VI assumes it is zero."""
     raise NotImplementedError  # Module 11, Step 4
 
-
-# --------------------------------------------------------------------------------------
-# The churn posterior and a Laplace reference
-# --------------------------------------------------------------------------------------
-def churn_log_joint(beta: Array, X: Array, y: Array, prior_scale: float = 2.5) -> Array:
-    """Bayesian logistic regression: beta_k ~ N(0, prior_scale^2),
-    y_i ~ Bernoulli(sigmoid(x_i . beta)). Same model as Module 7."""
-    logits = X @ beta
-    ll = jnp.sum(y * logits - jax.nn.softplus(logits))
-    return ll + jnp.sum(-0.5 * (beta / prior_scale) ** 2)
-
-
-def laplace_approximation(log_joint: LogProb, x0: Array, n_newton: int = 50) -> tuple[Array, Array]:
-    """Mode by Newton's method and covariance = inverse negative Hessian at the mode."""
-    g, H = jax.grad(log_joint), jax.hessian(log_joint)
-
-    def step(_, x):
-        return x - jnp.linalg.solve(H(x), g(x))
-
-    mode = jax.lax.fori_loop(0, n_newton, step, x0)
-    return mode, jnp.linalg.inv(-H(mode))

@@ -68,18 +68,22 @@ def leapfrog(grad_log_prob: Callable[[Array], Array], q: Array, p: Array, step_s
 
     One step: p <- p + (eps/2) grad log p(q);  q <- q + eps M^{-1} p;
               p <- p + (eps/2) grad log p(q).
+    The gradient that closes one step is the one that opens the next, so carry it in
+    the loop state: n_steps steps cost n_steps + 1 gradient evaluations, not 2 n_steps.
     `n_steps` may be a traced integer, so use lax.fori_loop. Returns (q, p).
     """
     # [m09 step 2]
 
-    def step(_, qp):
-        q, p = qp
-        p = p + 0.5 * step_size * grad_log_prob(q)
+    def step(_, qpg):
+        q, p, g = qpg
+        p = p + 0.5 * step_size * g
         q = q + step_size * inv_mass * p
-        p = p + 0.5 * step_size * grad_log_prob(q)
-        return (q, p)
+        g = grad_log_prob(q)
+        p = p + 0.5 * step_size * g
+        return (q, p, g)
 
-    return lax.fori_loop(0, n_steps, step, (q, p))
+    q, p, _ = lax.fori_loop(0, n_steps, step, (q, p, grad_log_prob(q)))
+    return q, p
 
 
 # --------------------------------------------------------------------------------------

@@ -4,7 +4,7 @@ title: "Module 15a — Normalising flows as variational families"
 
 ## Overview
 
-**Why this track exists.** On Day 2 you approximated posteriors with a product of
+**Why this module exists.** On Day 2 you approximated posteriors with a product of
 independent Gaussians and on Day 3 you saw, on the churn model, that this family gets
 the means right and the variances wrong. On a hierarchical model it does worse: the
 posterior has a funnel shape that no product of Gaussians can follow, and the fit
@@ -28,7 +28,8 @@ compare both against the HMC reference from Module 11.
 Step 5, 1 h report).
 
 **Prerequisites:** [Module 8](../day2/m08-bbvi-engine.qmd), [Module 10](../day3/m10-adaptation.qmd),
-[Module 11](../day3/m11-diagnostics.qmd). The target and reference are the uplift model of
+[Module 11](../day3/m11-diagnostics.qmd), and Step 1 of [Module 14](../day4/m14-vae.qmd)
+(`init_mlp` and `mlp`). The target and reference are the uplift model of
 Module 9 (`uplift_centered_log_prob`, `uplift_noncentered_log_prob`) and `run_chains`
 from Module 11. The vocabulary of posterior, ELBO and variational family is from
 [Module 2b](../day0/m02b-foundations.qmd) and the [glossary](../reference/glossary.qmd).
@@ -295,20 +296,22 @@ with fixed keys and compares them to 4 000 HMC draws mapped into centred coordin
 
 | Quantity | Mean-field | Flow (4 layers) | HMC reference |
 |---|---|---|---|
-| ELBO (nats) | 2.0 | 3.4 | — |
-| sd of $\log\tau$ | 0.27 | 0.73 | 1.05 |
-| mass at $\log\tau < -1$ | 0.00 | 0.23 | 0.30 |
-| effective sample fraction as proposal | 0.0003 | 0.35 to 0.57 | — |
+| ELBO (nats) | 2.0 | 3.5 | — |
+| sd of $\log\tau$ | 0.26 | 0.76 | 1.12 |
+| mass at $\log\tau < -1$ | 0.00 | 0.25 | 0.34 |
+| effective sample fraction as proposal | 0.002 | 0.08 to 0.45 | — |
 
-Read the rows together. The ELBO difference of 1.4 nats is the reduction in
-$\KL(q\,\|\,p)$: the flow is $e^{1.4} \approx 4$ times closer to the posterior in
+Read the rows together. The ELBO difference of 1.5 nats is the reduction in
+$\KL(q\,\|\,p)$: the flow is $e^{1.5} \approx 4.5$ times closer to the posterior in
 likelihood-ratio terms. The mean-field fit has a quarter of the true spread in
-$\log\tau$ and puts no mass at all below $\log\tau = -1$, where HMC puts 30%; it has
+$\log\tau$ and puts no mass at all below $\log\tau = -1$, where HMC puts 34%; it has
 decided that regions are reliably different when the data leave that open. The flow
 recovers most of the spread and most of the tail, and is still short of HMC. As a
-proposal, the mean-field fit is useless: an effective sample fraction of $3 \times 10^{-4}$
-means that 10 000 draws are worth three. The flow turns a third to a half of its draws
-into useful ones, which is what makes the importance-weighted bound of Step 5 tight.
+proposal, the mean-field fit is useless: an effective sample fraction of $2 \times 10^{-3}$
+means that 10 000 draws are worth about twenty. The flow turns from under a tenth to
+nearly a half of its draws into useful ones, depending on the key: the fraction is
+itself noisy, because a few draws near the neck carry large weights. That is what
+makes the importance-weighted bound of Step 5 tight.
 
 ### Why this matters
 
@@ -341,20 +344,20 @@ them.
 ## Steps
 
 Every step edits `workshop/m15a_flows.py`. The flow's parameters are a plain pytree,
-`{"layers": [mlp params per coupling], "act_log_scale", "act_shift"}`, so the Module 8
+`{"layers": [conditioner params per coupling], "act_log_scale", "act_shift"}`, so the Module 8
 Adam applies unchanged. Masks are not parameters; recompute them from the number of
 layers.
 
 ### Step 1 — Conditioner MLP and one coupling layer
 
 **What this computes.** One coupling layer in both directions, with the
-log-determinant of whichever map was applied. The conditioner is an ordinary MLP; the
+log-determinant of whichever map was applied. The conditioner is Module 14's MLP; the
 zero last layer makes the layer start as the identity, and the `tanh` bound keeps the
 scale finite.
 
-Implement `init_mlp(key, sizes)` (Gaussian hidden weights with standard deviation
-$1/\sqrt{\text{fan-in}}$, zero biases, zero last layer) and `mlp(params, x)` with `tanh`
-between layers and a linear output. Implement `make_masks(dim, n_layers)` returning
+Implement `init_conditioner(key, sizes)`: Module 14's `init_mlp` with the last layer's weights
+replaced by zeros (its biases are zero already); apply it with Module 14's `mlp`,
+which this module imports. Implement `make_masks(dim, n_layers)` returning
 `[n_layers, dim]` with layer $k$ conditioning on the coordinates whose index has parity
 $k \bmod 2$.
 
@@ -426,7 +429,7 @@ pytest tests/m15a -k step3
 
 You should see 3 passed. The target is a correlated bivariate Gaussian with known
 normaliser: sample mean and covariance within 0.1, ELBO within 0.05 of zero, and a
-trace that rises by more than 0.5 nats between its first and last 500 steps. The fit
+trace whose last 500 steps average more than 0.5 nats above its first 100. The fit
 takes about two seconds.
 
 ### Step 4 — The funnel
@@ -577,8 +580,8 @@ prevent it. In your own experiments, clip `act_log_scale` or lower the learning 
 
 **Step 4 margins fail although the flow trains.** Compare your fixture settings with
 `tests/m15a/_common.py`; the margins assume 12 000 steps with 64 samples. A four-layer
-flow with 2 000 steps gives an ELBO near 3.1 and a tail mass near 0.09, which fails
-the tail-closeness margin.
+flow trained for 2 000 steps with the default 16 samples per step gives an ELBO near
+3.2 and a tail mass near 0.09, which fails the tail-closeness margin.
 
 **You expected the flow to match HMC exactly.** It will not, for two reasons you can
 separate: the family (four affine couplings cannot represent the needle perfectly) and

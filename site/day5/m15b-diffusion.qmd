@@ -4,7 +4,7 @@ title: "Track B — Score-based diffusion as a continuous-time latent-variable m
 
 ## Overview
 
-**Why this track exists.** Days 1 to 4 were about inferring unknowns from data under a
+**Why this module exists.** Days 1 to 4 were about inferring unknowns from data under a
 model you wrote down. Generative modelling turns the question around: learn a model
 that produces data like the data you have, with a density you can evaluate. Diffusion
 models are the current standard answer, and they are usually presented as a bag of
@@ -27,8 +27,9 @@ following the [report template](report-template.qmd).
 Step 5, 1 h report).
 
 **Prerequisites:** [Module 1](../day0/m01-jax-warmup.qmd),
-[Module 7](../day2/m07-gradient-estimators.qmd), [Module 8](../day2/m08-bbvi-engine.qmd).
-You reuse the hand-written Adam from Module 8. The ELBO and latent-variable vocabulary
+[Module 7](../day2/m07-gradient-estimators.qmd), [Module 8](../day2/m08-bbvi-engine.qmd),
+and Step 1 of [Module 14](../day4/m14-vae.qmd). You reuse the hand-written Adam from
+Module 8 and the MLP from Module 14. The ELBO and latent-variable vocabulary
 is from [Module 2b](../day0/m02b-foundations.qmd), [Module 6](../day2/m06-cavi.qmd) and
 the [glossary](../reference/glossary.qmd); no stochastic calculus is assumed.
 
@@ -391,12 +392,12 @@ rate $2\times10^{-3}$, hidden width 128):
 
 | Quantity | Value |
 |---|---|
-| DSM loss, mean of first 100 steps | 0.78 |
+| DSM loss, mean of first 100 steps | 0.72 |
 | DSM loss, mean of last 100 steps | 0.40 (the irreducible floor is near here) |
 | mode proportions, data | 0.55 / 0.35 / 0.09 |
-| mode proportions, 2 000 samples at 400 steps | 0.51 / 0.37 / 0.12 |
-| held-out log-likelihood per point, exact divergence | $-1.35$ |
-| held-out log-likelihood per point, Hutchinson | $-1.35$ (sd 0.86 per point) |
+| mode proportions, 2 000 samples at 400 steps | 0.55 / 0.34 / 0.11 |
+| held-out log-likelihood per point, exact divergence | $-1.32$ |
+| held-out log-likelihood per point, Hutchinson | $-1.36$ (sd 0.76 per point) |
 | held-out log-likelihood per point, single Gaussian fit | $-2.97$ |
 | ODE pipeline error with the exact Gaussian score | 0.002 nats |
 
@@ -406,8 +407,9 @@ log density, and 0.002 nats says the integrator and the change-of-variables code
 correct. Then the 1.6-nat gap between the trained model and a single Gaussian on the
 held-out set says the model has learned the three modes: $e^{1.6} \approx 5$, so each
 held-out point is about five times more probable under the diffusion model. The
-Hutchinson column has the same mean as the exact one but a per-point standard
-deviation of 0.86 nats; it is useful only as an average.
+Hutchinson column has the same mean as the exact one up to its Monte Carlo error (0.05
+nats over 200 points) but a per-point standard deviation of 0.76 nats; it is useful
+only as an average.
 
 ### Why this matters
 
@@ -497,8 +499,10 @@ as sinusoidal features and the output divided by $\sigma_t$, and the "predict th
 noise" loss derived above, estimated on a minibatch with one random time and one noise
 draw per row.
 
-Implement `init_score_net(key, dim, hidden, n_freqs)` and `score_net(params, x, t)`:
-a three-layer SiLU MLP on `[x, time_features(t)]` whose output is divided by
+Implement `init_score_net(key, dim, hidden, n_freqs)` and `score_net(params, x, t)`
+with Module 14's `init_mlp` and `mlp`: a three-layer network
+$[d + 1 + 2 n_{\text{freqs}}, \text{hidden}, \text{hidden}, d]$ applied to
+`[x, time_features(t)]` with `activation=jax.nn.silu`, and its output divided by
 $\sigma_t$. Then implement `dsm_loss_fn(score_fn, key, x0)` for a batch `x0 [n, d]`:
 draw $t \sim U(\epsilon, 1)$ and $\varepsilon$ per row, form $x_t$, return the batch mean
 of $\|\sigma_t s(x_t, t) + \varepsilon\|^2$. `dsm_loss(params, key, x0)` wraps it with

@@ -31,8 +31,9 @@ def init_mlp(key: Array, sizes: list[int]) -> list[dict[str, Array]]:
     raise NotImplementedError  # Module 14, Step 1
 
 
-def mlp(params: list[dict[str, Array]], x: Array) -> Array:
-    """Apply the layers with tanh between them and no nonlinearity on the output."""
+def mlp(params: list[dict[str, Array]], x: Array, activation=jnp.tanh) -> Array:
+    """Apply the layers with `activation` (tanh by default) between them and no
+    nonlinearity on the output. Modules 15a and 15b reuse this network."""
     raise NotImplementedError  # Module 14, Step 1
 
 

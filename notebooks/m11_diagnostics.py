@@ -5,7 +5,7 @@
 # %%
 import jax, jax.numpy as jnp, numpy as np, matplotlib.pyplot as plt
 from notebooks._impl import impl
-m09, m11 = impl("m09_hmc"), impl("m11_diagnostics")
+m07, m09, m11 = impl("m07_gradients"), impl("m09_hmc"), impl("m11_diagnostics")
 
 # %%
 key = jax.random.key(3)
@@ -22,7 +22,7 @@ ax[0].set_ylabel("log tau"); plt.tight_layout(); plt.show()
 # %%
 from workshop.data import saas_churn
 X, y, _ = saas_churn(); X, y = jnp.asarray(X), jnp.asarray(y, float)
-lj = lambda b: m11.churn_log_joint(b, X, y)
+lj = lambda b: m07.churn_log_joint(b, X, y)
 chains, info, _ = m11.run_chains(lj, key, jnp.zeros((4, 5)), 500, 1000)
 s = m11.summarize(chains)
 for k in ("mean", "sd", "rhat", "ess"): print(k, np.round(np.asarray(s[k]), 3))

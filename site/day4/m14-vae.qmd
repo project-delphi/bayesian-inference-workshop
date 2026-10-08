@@ -247,7 +247,10 @@ vectors with `tanh` between layers. Glorot initialisation keeps the activations 
 sensible scale so the first ELBO is finite and the gradients are not tiny.
 
 Implement `init_mlp(key, sizes)` with Glorot-uniform weights and zero biases, and
-`mlp(params, x)` with `tanh` hidden activations and a linear output.
+`mlp(params, x, activation=jnp.tanh)` with `activation` between layers and a linear
+output. This is the only network in the workshop: Module 15a's coupling conditioners
+and Module 15b's score network are built from these two functions, the second with
+`activation=jax.nn.silu`.
 
 Sanity check: `mlp(init_mlp(key, [64, 64, 8]), X[:5])` has shape `(5, 8)`, and the
 parameter count of that network is $64 \times 64 + 64 + 64 \times 8 + 8 = 4\,680$.

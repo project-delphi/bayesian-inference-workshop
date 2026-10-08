@@ -20,9 +20,11 @@ import jax.numpy as jnp
 from jax import lax
 
 from .m08_bbvi import adam_init, adam_update
+from .m14_vae import init_mlp, mlp
 
 Array = jax.Array
 ScoreFn = Callable[[Array, Array], Array]  # (x [d], t scalar) -> score [d]
+NetParams = list[dict[str, Array]]  # Module 14's MLP layers
 
 BETA_MIN = 0.1
 BETA_MAX = 20.0
@@ -107,37 +109,26 @@ def time_features(t: Array, n_freqs: int = 8) -> Array:
     return jnp.concatenate([jnp.reshape(t, (1,)), jnp.sin(ang), jnp.cos(ang)])
 
 
-def init_score_net(key: Array, dim: int = 2, hidden: int = 128, n_freqs: int = 8) -> dict:
-    """Three-layer MLP: input [x, time_features(t)] -> hidden -> hidden -> dim.
-    Returns {"W1","b1","W2","b2","W3","b3"} with He-style initialisation."""
+def init_score_net(key: Array, dim: int = 2, hidden: int = 128, n_freqs: int = 8) -> NetParams:
+    """Module 14's init_mlp with sizes [dim + 1 + 2 n_freqs, hidden, hidden, dim]: the
+    input is [x, time_features(t)]."""
     # [m15b step 3]
-    k1, k2, k3 = jax.random.split(key, 3)
-    d_in = dim + 1 + 2 * n_freqs
-    s1, s2, s3 = jnp.sqrt(2.0 / d_in), jnp.sqrt(2.0 / hidden), jnp.sqrt(1.0 / hidden)
-    return {
-        "W1": s1 * jax.random.normal(k1, (d_in, hidden)),
-        "b1": jnp.zeros(hidden),
-        "W2": s2 * jax.random.normal(k2, (hidden, hidden)),
-        "b2": jnp.zeros(hidden),
-        "W3": s3 * jax.random.normal(k3, (hidden, dim)),
-        "b3": jnp.zeros(dim),
-    }
+    return init_mlp(key, [dim + 1 + 2 * n_freqs, hidden, hidden, dim])
 
 
-def score_net(params: dict, x: Array, t: Array) -> Array:
-    """s_theta(x, t) = MLP([x, time_features(t)]) / std(t). Dividing by the kernel std
-    gives the output the right scale near t = 0 where the true score is O(1/std)."""
+def score_net(params: NetParams, x: Array, t: Array) -> Array:
+    """s_theta(x, t) = mlp(params, [x, time_features(t)], activation=jax.nn.silu) / std(t),
+    with Module 14's mlp. Recover n_freqs from the first layer's input width. Dividing
+    by the kernel std gives the output the right scale near t = 0 where the true score
+    is O(1/std)."""
     # [m15b step 3]
-    n_freqs = (params["W1"].shape[0] - x.shape[0] - 1) // 2
-    h = jnp.concatenate([x, time_features(t, n_freqs)])
-    h = jax.nn.silu(h @ params["W1"] + params["b1"])
-    h = jax.nn.silu(h @ params["W2"] + params["b2"])
-    out = h @ params["W3"] + params["b3"]
+    n_freqs = (params[0]["w"].shape[0] - x.shape[0] - 1) // 2
+    out = mlp(params, jnp.concatenate([x, time_features(t, n_freqs)]), activation=jax.nn.silu)
     _, std = perturbation_kernel(x, t)
     return out / std
 
 
-def make_score_fn(params: dict) -> ScoreFn:
+def make_score_fn(params: NetParams) -> ScoreFn:
     return lambda x, t: score_net(params, x, t)
 
 
@@ -157,7 +148,7 @@ def dsm_loss_fn(score_fn: ScoreFn, key: Array, x0: Array) -> Array:
     return jnp.mean(jnp.sum((std[:, None] * s + eps) ** 2, axis=-1))
 
 
-def dsm_loss(params: dict, key: Array, x0: Array) -> Array:
+def dsm_loss(params: NetParams, key: Array, x0: Array) -> Array:
     """dsm_loss_fn with the score network."""
     # [m15b step 3]
     return dsm_loss_fn(make_score_fn(params), key, x0)
@@ -166,7 +157,7 @@ def dsm_loss(params: dict, key: Array, x0: Array) -> Array:
 # --------------------------------------------------------------------------------------
 # Step 4: training and the reverse-time sampler
 # --------------------------------------------------------------------------------------
-def train_score_model(key: Array, X: Array, n_steps: int, batch_size: int = 256, lr: float = 1e-3, hidden: int = 128) -> tuple[dict, Array]:
+def train_score_model(key: Array, X: Array, n_steps: int, batch_size: int = 256, lr: float = 1e-3, hidden: int = 128) -> tuple[NetParams, Array]:
     """Minimise dsm_loss with Adam (descent: pass -grad to m08's ascent update) over
     minibatches sampled with replacement, in one lax.scan. Returns (params, loss_trace)."""
     # [m15b step 4]

@@ -85,8 +85,10 @@ are written to be read in ten minutes each.
 ## Prerequisites
 
 Track A requires passing checkpoints for Modules 8 and 11. Track B requires Modules 7
-and 8. Track C requires Modules 12 and 13. Participants who are behind on Day 4 should
-choose Track A or B.
+and 8. Both also build their networks from the MLP of
+[Module 14](../day4/m14-vae.qmd), Step 1 (`pytest tests/m14 -k step1`, about fifteen
+minutes on its own). Track C requires Modules 12 and 13. Participants who are behind on
+Day 4 should do Module 14 Step 1 and then choose Track A or B.
 
 ## Working in pairs
 

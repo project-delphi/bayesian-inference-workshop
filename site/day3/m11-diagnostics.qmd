@@ -247,16 +247,16 @@ numbers from the solutions (four chains, 500 warm-up, 1 000 draws; VI as in Modu
 
 | Coefficient | HMC mean | HMC sd | VI sd | ratio VI/HMC |
 |---|---|---|---|---|
-| intercept | $-0.95$ | 0.138 | 0.114 | 0.83 |
+| intercept | $-0.96$ | 0.140 | 0.114 | 0.81 |
 | tenure | $-0.60$ | 0.134 | 0.132 | 0.98 |
-| weekly active days | $-1.25$ | 0.145 | 0.128 | 0.88 |
-| support tickets | $0.76$ | 0.125 | 0.115 | 0.92 |
-| enterprise plan | $-0.55$ | 0.260 | 0.221 | 0.85 |
+| weekly active days | $-1.25$ | 0.144 | 0.128 | 0.89 |
+| support tickets | $0.76$ | 0.124 | 0.115 | 0.93 |
+| enterprise plan | $-0.54$ | 0.260 | 0.221 | 0.85 |
 
 VI locations are within 0.17 posterior standard deviations of the HMC means on every
 coefficient. Every ratio is below one, and the two coordinates with the largest
 shortfall, the intercept and the enterprise-plan indicator, are the most correlated pair
-in the HMC posterior (correlation $-0.44$): an enterprise plan shifts the baseline, so
+in the HMC posterior (correlation $-0.42$): an enterprise plan shifts the baseline, so
 the data cannot separate "high intercept, strong plan effect" from "low intercept, weak
 plan effect", and mean-field VI reports each as more certain than it is. The HMC run
 itself passes its own diagnostics ($\hat R \le 1.001$, ESS about 3 000 of 4 000 draws
@@ -362,13 +362,14 @@ ESS) and the three numbers of the HMC-versus-VI comparison.
 
 Implement `summarize(chains)` (mean, sd, 5% and 95% quantiles, split-$\hat R$, ESS) and
 `compare_hmc_vs_vi(hmc_chains, vi_loc, vi_scale)` returning `mean_diff_in_sd`,
-`sd_ratio` and `max_abs_corr`. `churn_log_joint` and `laplace_approximation` are
-provided.
+`sd_ratio` and `max_abs_corr`. The model and the Laplace reference are the ones you
+wrote in Module 7: import `churn_log_joint` and `laplace` from
+`workshop.m07_gradients`.
 
-Sanity check: on the churn posterior, `max_abs_corr` should be about 0.44 and every
+Sanity check: on the churn posterior, `max_abs_corr` should be about 0.42 and every
 entry of `sd_ratio` below 1.
 
-![HMC against mean-field VI on the churn posterior. Left: posterior standard deviation per coefficient; VI is below HMC on every one, most on the two correlated coordinates. Right: HMC draws of the intercept and the enterprise coefficient with the VI two-sigma ellipse, which is axis-aligned and cannot represent the $0.44$ correlation.](../figures/m11_hmc_vs_vi.png)
+![HMC against mean-field VI on the churn posterior. Left: posterior standard deviation per coefficient; VI is below HMC on every one, most on the two correlated coordinates. Right: HMC draws of the intercept and the enterprise coefficient with the VI two-sigma ellipse, which is axis-aligned and cannot represent the correlation. This figure's run (other seeds) estimates it at $-0.46$; the run in the table above gives $-0.42$, and the gap is Monte Carlo error.](../figures/m11_hmc_vs_vi.png)
 
 ```bash
 pytest tests/m11 -k step4
@@ -384,6 +385,7 @@ Then look at the numbers yourself:
 
 ```python
 from workshop.data import saas_churn
+from workshop.m07_gradients import churn_log_joint
 from workshop.m11_diagnostics import *
 from workshop.m08_bbvi import fit
 import jax, jax.numpy as jnp

@@ -40,3 +40,16 @@ def test_step2_energy_error_is_second_order():
         errs.append(abs(float(H(q, p) - H(q0, p0))))
     assert errs[0] / errs[1] > 3.0 and errs[1] / errs[2] > 3.0
     assert errs[0] / errs[1] < 5.5 and errs[1] / errs[2] < 5.5
+
+
+def test_step2_one_gradient_per_step():
+    # The gradient at the end of one step is reused at the start of the next.
+    calls = []
+
+    def counted_grad(q):
+        jax.debug.callback(lambda: calls.append(1))
+        return grad(q)
+
+    leapfrog(counted_grad, jnp.array([0.3, -1.2]), jnp.array([0.7, 0.4]), 0.1, 25, INV_MASS)
+    jax.effects_barrier()
+    assert len(calls) == 26
