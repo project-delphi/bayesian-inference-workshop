@@ -7,11 +7,11 @@ Usage:
 
 Exit status 0 means the starter is honest: pytest ran, collected tests, and every one
 failed or errored before the participant has written code. Any passing test is printed
-and the script exits 1; so does a run that collected nothing or did not complete.
+and the script exits 1, as does any test that is skipped or marked xfail on the starter,
+or a run that collected nothing or did not complete. tests/m00 is exempt.
 """
 from __future__ import annotations
 
-import os
 import pathlib
 import subprocess
 import sys
@@ -26,7 +26,12 @@ def main(argv: list[str]) -> int:
         targets = [tests_dir / m for m in argv]
     else:
         targets = sorted(p for p in tests_dir.iterdir() if p.is_dir() and p.name.startswith("m") and p.name not in EXEMPT)
+    skipped = sorted({t.name for t in targets if t.name in EXEMPT})
     targets = [t for t in targets if t.name not in EXEMPT]
+    if skipped:
+        print(f"Skipping {', '.join(skipped)}: exempt from the starter check (environment tests may pass on the starter).")
+    if argv and not targets and skipped:
+        return 0
     missing = [t.name for t in targets if not t.is_dir()]
     if missing:
         print(f"No such test directory: {', '.join(missing)}")
@@ -35,11 +40,10 @@ def main(argv: list[str]) -> int:
         print("No module test directories found.")
         return 1
     cmd = [sys.executable, "-m", "pytest", "-rA", "-p", "no:cacheprovider", "-q", *map(str, targets)]
-    env = {k: v for k, v in os.environ.items() if k != "WORKSHOP_IMPL"}
-    out = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, env=env)
-    passed = [line for line in out.stdout.splitlines() if line.startswith("PASSED ")]
+    out = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+    passed = [line for line in out.stdout.splitlines() if line.startswith(("PASSED ", "SKIPPED ", "XPASS ", "XFAIL "))]
     if passed:
-        print("These tests PASS against the starter code; they are not testing anything:")
+        print("These tests pass, skip or xfail against the starter code; they are not testing anything:")
         for line in passed:
             print("  ", line)
         return 1

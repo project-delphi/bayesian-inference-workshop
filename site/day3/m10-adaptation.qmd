@@ -145,7 +145,10 @@ $$
 $$
 
 is a weighted average of the iterates with weights decaying like $t^{-\kappa}$,
-$\kappa = 0.75$. The raw $x_t$ keeps oscillating around the solution because each new
+$\kappa = 0.75$, started at $\bar x_0 = \log\varepsilon_0$. At $t = 1$ the weight on
+$\bar x_0$ is $1 - 1^{-\kappa} = 0$, so the starting value never affects a run that
+makes at least one update; it matters only when there are none, and then the step
+size stays at $\varepsilon_0$ instead of becoming $e^0 = 1$. The raw $x_t$ keeps oscillating around the solution because each new
 $\alpha_t$ is noisy; the average $\bar x_t$ is what is used after warm-up. Averaging in
 log space is why a few very small step sizes during warm-up (after a divergence, say)
 do not drag the final value down much.

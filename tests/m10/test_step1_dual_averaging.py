@@ -10,6 +10,10 @@ from tests._util import key
 def test_step1_update_formulas():
     s = dual_averaging_init(0.1)
     np.testing.assert_allclose(s.mu, np.log(1.0))
+    # The averaged log step starts at log(step_size0), so a warm-up with no updates
+    # returns step_size0 rather than exp(0) = 1.
+    np.testing.assert_allclose(s.log_step_avg, np.log(0.1))
+    np.testing.assert_allclose(dual_averaging_final(s), 0.1)
     s1 = dual_averaging_update(s, jnp.asarray(0.5))
     # t=1: h_bar = (0.8-0.5)/11 ; log_step = mu - 1/0.05 * h_bar ; avg = log_step
     h = 0.3 / 11

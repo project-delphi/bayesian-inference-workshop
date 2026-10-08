@@ -100,7 +100,8 @@ bayesian_inference/
   `from workshop.m03_expfam import …` resolves to the reference implementation.
   Both packages use only relative imports internally so cross-module dependencies
   (m13 using m08 and m10) resolve inside the same package. Notebooks use
-  `WORKSHOP_IMPL=solutions` for the same switch.
+  `WORKSHOP_IMPL=solutions` as their own switch; pytest deliberately ignores that
+  variable, so only `--solutions` makes the tests grade the reference code.
 - **Step granularity.** Each step has its own test file `tests/mXX/test_stepN_<name>.py`
   so `pytest tests/m03 -k step2` runs exactly that step's checks. The module checkpoint is
   `pytest tests/m03`.
