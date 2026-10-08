@@ -1,0 +1,480 @@
+---
+title: "Module 13 — Inference through the PPL"
+---
+
+## Overview
+
+**Why this module exists.** The engines you built want one thing: a function from a
+flat vector of real numbers to a log density. A model written in the Module 12 PPL
+offers something else: named sites of various shapes, some of which must be positive,
+some in an interval. The gap between the two is bookkeeping, and it is the bookkeeping
+that Stan, NumPyro and Pyro all perform behind the scenes: lay the sites out in a
+vector, map each constrained site to the real line through a bijector, and add the
+change-of-variables correction so the density on the real line is the right one.
+Forgetting that correction is not a small error; it silently changes the prior. Once
+the bridge exists, Module 8's `fit` and Module 11's `run_chains` run on any
+continuous-latent model with no model-specific code, and you can compare them on the
+same problem. The test problem is enzyme kinetics, a two-parameter curve whose
+posterior is strongly correlated, which is exactly the situation that separates
+mean-field variational inference from Hamiltonian Monte Carlo.
+
+**What you'll build:** in `workshop/m13_ppl_inference.py`, the layer that turns a model
+written with Module 12's primitives into a density on $\R^d$ and runs the Day 2 and Day 3
+engines on it: an automatic flat layout of latent sites with their support bijectors,
+`unconstrained_log_density`, an `AutoNormal` mean-field guide fitted with Module 8's
+`fit`, adaptive HMC with Module 11's `run_chains`, and a posterior predictive. The test
+model is Michaelis–Menten enzyme kinetics on the `enzyme_kinetics` dataset; the
+regional-uplift hierarchy from Day 3 is the second.
+
+**Estimated time:** 2.5 hours (about 45 minutes reading, 1.75 hours building).
+
+**Prerequisites:** [Module 12](m12-effect-handlers.qmd), [Module 8](../day2/m08-bbvi-engine.qmd),
+[Module 11](../day3/m11-diagnostics.qmd). Vocabulary:
+[bijector](../reference/glossary.qmd#bijector), [guide](../reference/glossary.qmd#guide),
+[posterior predictive](../reference/glossary.qmd#posterior-predictive).
+
+## Learning objectives
+
+By the end of this module you can:
+
+1. Build a `ParamSpec` from one traced execution and move between a dictionary of
+   constrained site values and a flat unconstrained vector in both directions.
+2. Derive the change-of-variables correction for $\tau = e^z$ from first principles,
+   write it for a product of elementwise bijectors, and show the resulting density
+   equals Module 9's hand-coded target.
+3. Explain with numbers what goes wrong when the correction is omitted.
+4. Run mean-field VI and adaptive HMC on any continuous-latent model written in the PPL
+   without model-specific code, and read the diagnostics.
+5. Explain, with numbers from the enzyme model, why mean-field VI under-disperses a
+   correlated posterior while HMC does not.
+
+## Background
+
+### The problem in plain terms
+
+Module 8's `fit(log_joint, dim, key, ...)` and Module 11's `run_chains(log_prob, key, q0s, ...)`
+both take a function $f: \R^d \to \R$ and a dimension $d$. They move a point around
+$\R^d$, evaluate $f$ and its gradient, and never ask what the coordinates mean. The
+enzyme model has three unknowns, $V_{\max} > 0$, $K_m > 0$ and $\sigma > 0$, each a named
+site with a positivity constraint. The uplift model has ten: a scalar $\mu$, a positive
+$\tau$ and an 8-vector $\eta$. To use the engines you need three things.
+
+1. **A layout:** which coordinates of the flat vector belong to which site, and in what
+   shape.
+2. **A transform:** a way to let the engine wander over all of $\R^d$ while every site
+   stays inside its support. If the engine proposes $z = -3$ for a coordinate that
+   represents $\sigma$, the model must still see a positive number.
+3. **A correction:** the density of the transformed variable is not the density of the
+   original variable. The change-of-variables formula fixes it, and Module 2's
+   diagnostic was there to make sure you can derive it.
+
+### Definitions
+
+| Term | What it is |
+|---|---|
+| **constrained space** | the values a site can actually take: $(0, \infty)$ for a scale, $(a, b)$ for a uniform, $\R$ for a location |
+| **unconstrained space** | $\R^d$, where the engines operate |
+| **support bijector** $T_s$ | a smooth invertible map from $\R$ onto the site's support, with a computable log-determinant of its Jacobian; `Exp` for positive sites, `Identity` for real ones |
+| **layout** (`ParamSpec`) | the list of latent site names, shapes, slices into the flat vector, and bijectors, in execution order |
+| **unconstrained log density** | $\log\tilde p(z) = \log p(T(z), x) + \sum_s \log\lvert\det J_{T_s}(z_s)\rvert$: the function the engines consume |
+| **guide** | a distribution over the unknowns with learnable parameters; `AutoNormal` is a diagonal Gaussian over the flat unconstrained vector |
+| **posterior predictive** | the distribution of new data, averaging the likelihood over posterior draws |
+
+### The change of variables in one dimension
+
+Take a single positive unknown $\tau$ with prior density $p_\tau$, and introduce
+$z = \log\tau$, so $\tau = T(z) = e^z$. What is the density of $z$?
+
+Probability is conserved under relabelling: the probability that $\tau$ lies in a
+small interval $[t, t + \dd t]$ must equal the probability that $z$ lies in the
+corresponding interval $[\log t, \log t + \dd z]$. Since $\dd t = e^z \dd z$,
+
+$$
+p_z(z)\,\dd z = p_\tau(e^z)\,\dd t = p_\tau(e^z)\,e^z\,\dd z
+\quad\Longrightarrow\quad
+\log p_z(z) = \log p_\tau(e^z) + z.
+$$
+
+The extra $+z$ is $\log\lvert\dd T/\dd z\rvert$, the log-Jacobian. It says that a
+unit of $z$ near $z = 3$ covers twenty times more $\tau$ than a unit of $z$ near
+$z = 0$, so the density in $z$ must be scaled up by that factor. In $d$ dimensions with
+elementwise bijectors, the Jacobian matrix is diagonal, its determinant is the product
+of the scalar derivatives, and the log-determinant is a sum. That is exactly what
+Module 8's `log_det_jacobian` returns, and it is why the correction is one line in
+Step 2.
+
+### What goes wrong without it
+
+Take the uplift model's prior $\tau \sim \mathrm{HalfNormal}(5)$, density
+$p_\tau(t) \propto e^{-t^2/50}$ on $t > 0$. With the Jacobian, the implied prior on
+$z = \log\tau$ is $\log p_z(z) = -e^{2z}/50 + z + \text{const}$, which has a single mode
+at $z = \log 5$ (set the derivative $1 - 2e^{2z}/50$ to zero), that is at $\tau = 5$, and
+integrates to one.
+
+Without the Jacobian, the engine would see $\log p_\tau(e^z) = -e^{2z}/50 + \text{const}$.
+As $z \to -\infty$ this tends to a constant: the uncorrected function is flat all the
+way down to $\tau = 0$. Numerically, its value at $z = -6$ (that is, $\tau = 0.0025$) is
+$-1.835$ and at $z = 0$ it is $-1.855$: no preference at all. A flat density on an
+infinite half-line is not a probability distribution; the "prior" has become improper,
+with infinite mass piled toward $\tau = 0$. At $z = -3$ the uncorrected density is
+$e^{3} \approx 20$ times too large relative to the correct one. The sampler drifts
+toward tiny $\tau$, and the posterior standard deviation of every $\theta_j$ shrinks
+with it. Nothing crashes. The only symptom is a wrong answer, which is why Step 2 tests
+the difference between the two densities to be exactly $z_{\log\tau}$.
+
+![The HalfNormal(5) prior on $z = \log\tau$. With the Jacobian (solid) the density has a mode at $\tau = 5$ and integrates to one. Without it (dashed red) the curve is flat all the way to $z \to -\infty$ and its integral diverges: the "prior" is improper and pulls every sampler toward $\tau = 0$.](../figures/m13_unconstrained_density.png){width=65%}
+
+::: {.callout-important title="Jacobian check"}
+This is the [change of variables of Module 2b](../day0/m02b-foundations.qmd#sec-jacobian),
+now applied automatically to every constrained site. `unconstrained_log_density` is
+the function to check, and the check needs no model-specific algebra:
+
+```python
+from workshop.jacobian_check import check_change_of_variables
+spec = unconstrain(uplift_model, y, sigma)
+i = flat_names(spec).index("tau")                     # position of log tau in z
+z0 = jnp.zeros(spec.dim)
+on_tau  = lambda t: log_density(uplift_model, {**unflatten(z0.at[i].set(jnp.log(t)), spec)}, y, sigma)[0]
+on_z    = lambda zi: unconstrained_log_density(uplift_model, spec, z0.at[i].set(zi), y, sigma)
+check_change_of_variables(on_tau, jnp.exp, on_z, jnp.linspace(-3, 2, 6))   # zeros
+```
+
+Every other coordinate is held at zero, so the only transform in play is
+$\tau = e^{z_i}$, and the discrepancy isolates its Jacobian term.
+:::
+
+### The layout
+
+Trace the model once under `seed`. Every latent sample site, in execution order,
+contributes its name, its shape, a slice of the flat vector, and the support bijector of
+its distribution. The total dimension is $d = \sum_s \prod\text{shape}_s$. Execution
+order is what makes the layout reproducible across calls.
+
+| Model | Sites | Bijectors | $d$ |
+|---|---|---|---|
+| enzyme | `Vmax`, `Km`, `sigma` | `Exp`, `Exp`, `Exp` | 3 |
+| uplift (non-centred) | `mu`, `tau`, `eta` | `Identity`, `Exp`, `Identity` | 10 |
+
+`unflatten(z, spec)` cuts the vector into slices, reshapes each and applies its
+bijector's `forward`; `flatten(values, spec)` applies each `inverse` and concatenates.
+They are exact inverses of each other, which Step 1 tests.
+
+### The two engines through one function
+
+Once $\log\tilde p$ exists, nothing else is model-specific.
+
+**AutoNormal is Module 8.** `svi` builds the layout, wraps $\log\tilde p$ in a lambda,
+and calls `fit`. The guide is `MeanFieldGaussian(d)`: one location and one log-scale
+per coordinate of $z$, so three pairs for the enzyme model. Samples from the guide are
+mapped through `unflatten` to give named, positive posterior draws. The approximation
+is a Gaussian in $z$, which is a log-normal in $\tau$; that is why the guide's samples
+are always inside the support.
+
+**HMC is Modules 10 and 11.** `hmc` builds the same layout, draws one starting point
+per chain from the prior (run the model under `seed`, read the latent values, flatten
+them), and calls `run_chains` on $\log\tilde p$. Chains live in $z$; `unflatten` under
+two `vmap`s turns them into named constrained samples. The diagnostics ($\hat R$, ESS,
+divergences) are computed on the unconstrained chains, where the sampler actually
+moves.
+
+**The posterior predictive** closes the loop: for each posterior draw $\theta^{(k)}$,
+run the model with the latents substituted, and draw fresh values at the observed
+sites from their distributions at that draw. The spread of those draws is the
+predictive distribution; its mean should track the data up to the noise level, and its
+standard deviation should match the noise level rather than shrinking as you add
+draws.
+
+### The enzyme model, for non-biologists
+
+An enzyme converts a substrate into a product. At low substrate concentration $s$, the
+reaction velocity $v$ grows roughly linearly with $s$: more substrate, more collisions
+with free enzyme. At high concentration every enzyme molecule is busy, and the velocity
+saturates at a maximum $V_{\max}$. The Michaelis–Menten curve captures both regimes:
+
+$$
+v(s) = \frac{V_{\max}\,s}{K_m + s},
+$$
+
+where $K_m$ is the concentration at which the velocity is half its maximum. The dataset
+has 24 measurements at eight concentrations from $0.25$ to $32$, three replicates each,
+generated with $V_{\max} = 12$, $K_m = 2.5$ and Gaussian noise of standard deviation
+$0.6$. At $s = 0.25$ the velocities are near $1$; at $s = 32$ they are near $11$.
+
+The model, written as a program:
+
+$$
+V_{\max} \sim \mathrm{LogNormal}(\log 10, 1),\quad
+K_m \sim \mathrm{LogNormal}(0, 1),\quad
+\sigma \sim \mathrm{HalfNormal}(2),\quad
+v_i \sim \mathcal N\!\left(\frac{V_{\max}\, s_i}{K_m + s_i},\ \sigma^2\right).
+$$
+
+Why these priors. All three unknowns are positive scales, and a log-normal prior is the
+natural way to say "positive, uncertain by a multiplicative factor": $\mathrm{LogNormal}(\log 10, 1)$
+puts $V_{\max}$ somewhere between about $10/e$ and $10e$ with most mass near $10$, which is a
+loose statement of the expected plateau. $\mathrm{HalfNormal}(2)$ on the noise says the
+measurement error is probably below $2$ velocity units without saying more. None of
+these priors is informative compared with 24 data points; they mostly keep the
+sampler away from absurd values in the first iterations.
+
+Why this model is a good test. A higher plateau $V_{\max}$ can be traded for a slower
+approach to it (larger $K_m$) while fitting the data about as well, so the posterior over
+$(V_{\max}, K_m)$ is a tilted ellipse. That correlation is what a mean-field Gaussian
+cannot represent.
+
+### A worked example with numbers
+
+Reference results from the solutions, both engines on the same
+`unconstrained_log_density`, SVI with 6 000 steps and 32 samples per step, HMC with 4
+chains of 300 warm-up plus 300 draws.
+
+| Unknown | Truth | SVI mean ± sd | HMC mean ± sd |
+|---|---|---|---|
+| $V_{\max}$ | $12.0$ | $12.24 \pm 0.19$ | $12.23 \pm 0.33$ |
+| $K_m$ | $2.5$ | $2.85 \pm 0.15$ | $2.84 \pm 0.25$ |
+| $\sigma$ | $0.6$ | $0.54 \pm 0.11$ | $0.53 \pm 0.08$ |
+
+Read it as follows.
+
+- **The means agree.** Both engines are approximating the same posterior, and both
+  put the truth within two posterior standard deviations. The $K_m$ posterior sits a
+  little above the truth because three noisy replicates at each concentration do not
+  pin the half-saturation point tightly.
+- **The standard deviations do not.** SVI's sd for $V_{\max}$ is $0.19$; HMC's is $0.33$.
+  The HMC posterior correlation between $V_{\max}$ and $K_m$ is $0.80$. A diagonal
+  Gaussian cannot tilt, so it fits the narrowest axis-aligned box inside the ellipse and
+  reports marginals that are too narrow by roughly the factor the ellipse is tilted.
+  This is the under-dispersion of mean-field VI that Module 11 measured on the churn
+  model, now on a problem where you can see the cause in the physics.
+- **The diagnostics are clean.** $\hat R$ is $1.00$ for all three coordinates, the
+  effective sample size is about $1\,300$ out of $1\,200$ draws (slightly above the draw
+  count, which happens when HMC produces negatively correlated consecutive samples),
+  and there are no divergences.
+- **The ELBO has a plateau.** It starts near $-469$, is still near $-63$ after 2 000
+  steps, and reaches $-27$ by 6 000. Stopping at 3 000 steps leaves $\sigma$ with a
+  posterior mean near $2$ and an sd above $1$: the guide has not yet found the data.
+  Convergence of the ELBO is a thing to check, not assume.
+- **The predictive check passes.** The posterior predictive mean at $s = 0.25$ is about
+  $1.0$ against observed velocities of $1.17$, $1.01$ and $1.48$, and the predictive
+  standard deviation averages $0.56$ against a true noise level of $0.6$.
+
+### Why this matters later
+
+- **Module 14** uses the same `trace`-and-`replay` pattern to compute a VAE's ELBO; the
+  layout machinery is not needed there because the latent is unconstrained and local.
+- **Track A** fits a normalising flow on an unconstrained target built exactly this way.
+- **Track C** runs `svi` and `hmc` on causal models to infer exogenous noise from
+  observed outcomes, which is what a counterfactual needs.
+
+### Common misconceptions
+
+- **"Unconstraining changes the model."** It changes the coordinates, not the
+  distribution, provided the Jacobian is included. Omitting it is what changes the
+  model.
+- **"The guide is the posterior."** The guide is the best member of its family, measured
+  by KL. For a correlated posterior a mean-field guide gets the means right and the
+  variances wrong; the table above is the evidence.
+- **"HMC does not need the bijectors because it can just reject out-of-support
+  proposals."** It could, but the gradient of $\log\tilde p$ would be undefined at the
+  boundary and the chain would waste most of its leapfrog steps bouncing off it.
+  Transforming to $\R^d$ makes the geometry smooth.
+- **"Starting chains from the prior is a good initialisation."** It is a legitimate one,
+  not a good one; Module 12's worked example showed a prior draw hundreds of nats
+  below the posterior. Warm-up exists to recover from it.
+
+## Steps
+
+Every step edits `workshop/m13_ppl_inference.py`.
+
+### Step 1 — Layout
+
+**What this computes.** One traced execution of the model, read as a table of latent
+sites with shapes and support bijectors, plus the two maps between a dictionary of
+constrained values and a flat unconstrained vector.
+
+Implement `unconstrain(model, *args)` returning a `ParamSpec`, and
+`unflatten(z, spec)` / `flatten(values, spec)`. A latent with `support = None` is an
+error; the message should say the site is discrete.
+
+Sanity check: `unconstrain(enzyme_model, S, V).names` is `("Vmax", "Km", "sigma")` with
+`dim == 3`, and `unflatten(jnp.zeros(3), spec)` gives $V_{\max} = K_m = \sigma = 1$,
+since $e^0 = 1$.
+
+```bash
+pytest tests/m13 -k step1
+```
+
+You should see 2 passed: the uplift layout is `("mu", "tau", "eta")` with
+$d = 10$ and an `Exp` bijector on `tau`; flatten and unflatten are inverse on the enzyme
+model and produce positive values.
+
+### Step 2 — The density on $\R^d$
+
+**What this computes.** $\log\tilde p(z) = \log p(T(z), x) + \sum_s \log\lvert\det J_{T_s}\rvert$:
+Module 12's `log_density` at the unflattened values plus the Jacobian terms from the
+Background.
+
+Implement `unconstrained_log_density(model, spec, z, *args)`.
+
+Sanity check: for the uplift model, `unconstrained_log_density(uplift_model, spec, z, Y, SIGMA)`
+minus `log_density(uplift_model, unflatten(z, spec), Y, SIGMA)[0]` equals `z[1]`, the
+$\log\tau$ coordinate, for any `z`.
+
+```bash
+pytest tests/m13 -k step2
+```
+
+You should see 3 passed. The third evaluates a $(2, 3)$ Uniform site whose bijector has a
+length-3 scale, so the log-Jacobian must be computed on the site's shape, not on the flat
+slice. The first two check agreement with Module 9's target up to a constant with exact
+gradients under `jax.jit`, and that the difference from the plain `log_density` is the
+Jacobian term $z_{\log\tau}$.
+
+### Step 3 — Automatic mean-field VI
+
+**What this computes.** Module 8's `fit` on $\log\tilde p$, then guide samples mapped
+back through the bijectors. The guide is a diagonal Gaussian in $z$, so a log-normal in
+each positive unknown.
+
+Implement `svi(model, args, key, n_steps, lr=0.02, n_samples=8)` using Module 8's `fit`,
+and `posterior_samples_svi(params, spec, key, n)`.
+
+Sanity check: after the fit, `posterior_samples_svi(params, spec, key, 4000)["Vmax"].mean()`
+is near $12.2$ and every entry of `["sigma"]` is positive.
+
+```bash
+pytest tests/m13 -k step3
+```
+
+You should see 1 passed. With 6 000 steps and 32 samples per step the fit takes well
+under a second after compilation. The ELBO stalls near $-60$ for the first few thousand
+steps and then rises to about $-27$; 3 000 steps are not enough, which is the first
+thing the notebook shows.
+
+### Step 4 — HMC through the PPL
+
+**What this computes.** Module 11's `run_chains` on $\log\tilde p$ from prior-drawn
+starting points, with the chains mapped back to constrained space and summarised.
+
+Implement `init_from_prior`, `flat_names` and
+`hmc(model, args, key, n_warmup, n_samples, n_chains=4, **adapt_kwargs)`.
+
+Sanity check: `summary["names"]` is `["Vmax", "Km", "sigma"]`, every `summary["rhat"]`
+is below $1.01$, and `jnp.corrcoef(samples["Vmax"].ravel(), samples["Km"].ravel())[0, 1]`
+is about $0.8$.
+
+```bash
+pytest tests/m13 -k step4
+```
+
+You should see 2 passed. On the enzyme model with 4 chains of 300 + 300: $\hat R < 1.05$,
+ESS above 200 per coordinate, no divergences, and the mean-field SD of $V_{\max}$ is
+smaller than HMC's (0.19 against 0.33 in the reference run). On the non-centred uplift
+model: at most 5 divergences and $\tau > 0$ for every draw.
+
+### Step 5 — Posterior predictive
+
+**What this computes.** For each posterior draw, the model is run with the latents
+fixed and the observed site is sampled afresh. The result is a set of simulated
+datasets whose spread is the predictive distribution.
+
+Implement `predictive(model, posterior_samples, key, *args)`: detect observed sites from
+a probe trace, then `vmap` over draws, substituting latents and sampling each observed
+site's distribution with a per-draw, per-site key. Draw at the observed value's shape,
+not the distribution's batch shape: `Normal(mu, 0.5)` with scalar `mu` observing a
+length-24 vector must give 24 replicates. Broadcast the distribution's `_params` to
+`jnp.broadcast_shapes(value_shape, fn.batch_shape)` and rebuild it with
+`type(fn)(*params)` before sampling.
+
+Sanity check: `predictive(enzyme_model, flat_samples, key, S, V)["v"]` has shape
+`[n_draws, 24]`, its mean over draws at the three $s = 0.25$ points is about $1.0$, and
+its standard deviation over draws averages about $0.56$.
+
+```bash
+pytest tests/m13 -k step5
+```
+
+You should see 3 passed: the predictive mean tracks the 24 observed velocities within
+four noise standard deviations and the predictive spread matches the noise level; a
+scalar `Normal` observing a vector yields one fresh replicate per observed element; and
+a batch shape with a size-1 dimension is broadcast against the observation. Draw
+each observed site at the shape of its observed value, not at the distribution's batch
+shape.
+
+## Checkpoint
+
+::: {.callout-tip title="Checkpoint"}
+```bash
+pytest tests/m13
+```
+11 tests pass in about 10 seconds. Module 14 and Capstone Track C import this file.
+Before moving on, be able to write the change-of-variables correction for
+$\tau = e^z$ from scratch and say what the posterior would do if you dropped it.
+
+**Which expectation did you just compute?** The posterior predictive of the enzyme
+model, $\E_{p(\theta\mid x)}[p(v_{\text{new}} \mid s_{\text{new}}, \theta)]$, by running the
+model forward on posterior draws from either engine. Steps 3 and 4 produced the
+draws; Step 5 took the expectation. The same object was computed on a grid in Module
+2b and in closed form in Module 5.
+:::
+
+## Challenge
+
+::: {.callout-note title="Challenge"}
+1. Implement an `AutoMultivariateNormal` guide (full covariance via a Cholesky
+   factor) by extending Module 8's family, and show that on the enzyme model its
+   marginal standard deviations match HMC's where the mean-field guide's do not.
+2. The centred uplift model (`theta` sampled directly) produces divergences under
+   HMC. Write it as a program, run `hmc` on it, and reproduce Module 11's
+   centred-versus-non-centred divergence count through the PPL.
+:::
+
+## Going deeper
+
+- Kucukelbir, Tran, Ranganath, Gelman and Blei, "Automatic Differentiation Variational
+  Inference", *JMLR* 18, 2017: the unconstrain-then-Gaussian recipe this module
+  implements, including the Jacobian bookkeeping. Section 2.3 is the derivation above
+  in general form.
+- Phan, Pradhan and Jankowiak, "Composable Effects for Flexible and Accelerated
+  Probabilistic Programming in NumPyro", arXiv:1912.11554, 2019, Section 3 on how
+  NumPyro's `initialize_model` performs the same layout.
+- Gelman, Carlin, Stern, Dunson, Vehtari and Rubin, *Bayesian Data Analysis*, 3rd ed.,
+  Chapter 6, on posterior predictive checks.
+- Betancourt and Girolami, "Hamiltonian Monte Carlo for Hierarchical Models",
+  arXiv:1312.0906, 2013, on why the non-centred parameterisation matters.
+
+## Troubleshooting
+
+::: {.callout-warning title="Troubleshooting"}
+**`unconstrain` lists the observed site.** Filter on `is_observed`; the probe trace
+includes every site.
+
+**Step 2 difference test fails by exactly $z_{\log\tau}$.** You forgot the Jacobian
+sum, or added it inside `log_density` where the test for the plain density then
+double counts it.
+
+**Posterior for $\tau$ (or $\sigma$) piles up near zero with no error.** The Jacobian
+is missing. Recall the Background: without it, the prior on $\log\tau$ is flat all
+the way to $-\infty$. Nothing crashes; the answer is wrong.
+
+**SVI posterior for $\sigma$ has mean near 2 and SD above 1.** Not converged. The
+enzyme ELBO has a long plateau; use at least 6 000 steps or a larger learning rate,
+and more samples per step for a flatter trace.
+
+**You concluded the two engines disagree because the standard deviations differ.**
+They agree on the posterior; one of them cannot represent it. Check the HMC
+correlation between $V_{\max}$ and $K_m$ before blaming either engine.
+
+**HMC chains start at absurd values and $\hat R$ is huge.** Starting points were
+drawn in constrained space and not passed through the inverse bijector, or a chain
+started at a prior draw with $V_{\max}$ near $e^{3}$; 300 warm-up iterations should
+recover, so also check the step size did not collapse (Module 10 Troubleshooting).
+
+**`predictive` returns the data itself.** You ran the model with `obs` still in
+force and read the observed site's value. Sample from the site's distribution
+instead of reading its value.
+
+**`jax.vmap` over a dictionary of samples fails with a shape error.** Every entry
+must have the same leading dimension; chains must be flattened with
+`reshape(-1, *shape)` before `predictive`.
+:::

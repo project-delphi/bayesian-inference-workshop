@@ -1,0 +1,392 @@
+---
+title: "Module 2 — Diagnostic"
+---
+
+## Overview
+
+**Why this module exists.** Days 1 to 5 rely on four pieces of mathematics without
+re-deriving them each time: conditioning a Gaussian, changing variables in a density,
+differentiating matrix expressions, and the KL divergence between Gaussians. None of
+them is Bayesian; all of them are calculus and linear algebra you have met. This module
+derives each one in full, then asks you to implement it with a test. If a step does not
+pass, the review list says exactly what to study, and you come back when it does. The
+Bayesian material starts in [Module 2b](m02b-foundations.qmd); this page only checks
+the mathematics it relies on.
+
+**What you'll build:** five auto-graded checks in `workshop/m02_diagnostic.py`:
+Gaussian conditioning, change of variables, three matrix-calculus identities, the KL
+divergence between Gaussians, and a conceptual quiz.
+
+**Estimated time:** 90 minutes (about 45 minutes reading, 45 minutes building).
+
+**Prerequisites:** [Module 1](m01-jax-warmup.qmd).
+
+**Pass criterion:** `pytest tests/m02` passes in full. If a step fails and the fix is not
+clear after reading its derivation below, use the review list in the Checkpoint, then
+return. Expect to spend an extra hour or two if one of the four topics is rusty; that
+hour is well spent, because each topic reappears on every subsequent day.
+
+## Learning objectives
+
+By the end of this module you can:
+
+1. Derive the conditional of a multivariate Gaussian by completing the square, and
+   implement it with a solve rather than an inverse.
+2. Derive the change-of-variables formula in one dimension and state its multivariate
+   form, then push a density through a map with autodiff.
+3. Differentiate $\log\det A$, $x^\top A x$ and $\tr(A^{-1}B)$ by hand from the
+   differential rules.
+4. Derive $\KL$ between two multivariate Gaussians from the definition and implement it
+   with Cholesky factors.
+5. Explain the basic identities about convexity, the score and the log-partition
+   function that Modules 3 and 4 build on.
+
+## Background
+
+### The problem in plain terms
+
+Each of the four topics answers a question that comes up constantly in inference.
+
+- *Conditioning a Gaussian.* If a Gaussian describes several quantities jointly and you
+  observe some of them, what do you now believe about the rest? This is Bayesian
+  updating in the one case where it is pure linear algebra; Module 5 and Track C use it
+  directly.
+- *Change of variables.* Parameters have constraints (a variance is positive, a
+  probability lies in $[0, 1]$) but optimisers and samplers prefer the whole real line.
+  Transforming a parameter changes its density by a Jacobian factor; forgetting it gives
+  silently wrong posteriors. Module 2b, Module 8 and Track A depend on this.
+- *Matrix calculus.* Log densities of Gaussians contain $\log\det$ and quadratic forms,
+  and their gradients with respect to covariance matrices appear in every variational
+  update.
+- *KL between Gaussians.* The distance variational inference minimises, in the one
+  family where it is closed form. It is the test oracle for Module 4 and the objective in
+  Modules 6 to 8.
+
+### Gaussian conditioning, derived
+
+Let $x \sim \mathcal N(\mu, \Sigma)$ in $\R^d$ and split the coordinates into a free
+block $f$ and an observed block $o$. Write the precision matrix $\Lambda = \Sigma^{-1}$
+in the same blocks. The log density is, up to a constant,
+
+$$
+-\tfrac12 (x - \mu)^\top\Lambda(x - \mu)
+= -\tfrac12\Big[(x_f - \mu_f)^\top\Lambda_{ff}(x_f - \mu_f) + 2(x_f - \mu_f)^\top\Lambda_{fo}(x_o - \mu_o) + (x_o - \mu_o)^\top\Lambda_{oo}(x_o - \mu_o)\Big].
+$$
+
+Fix $x_o$ and look at this as a function of $x_f$ alone. The last term is a constant.
+The remaining terms are a quadratic in $x_f$ with matrix $\Lambda_{ff}$ and a linear
+term, so the conditional is Gaussian. Complete the square: a density proportional to
+$\exp(-\tfrac12 x_f^\top P x_f + x_f^\top b)$ is $\mathcal N(P^{-1}b, P^{-1})$. Here
+$P = \Lambda_{ff}$ and, collecting the terms linear in $x_f$,
+$b = \Lambda_{ff}\mu_f - \Lambda_{fo}(x_o - \mu_o)$. Hence
+
+$$
+x_f \mid x_o \sim \mathcal N\!\Big(\mu_f - \Lambda_{ff}^{-1}\Lambda_{fo}(x_o - \mu_o),\; \Lambda_{ff}^{-1}\Big).
+$$
+
+This is the answer in precision form. To express it with blocks of $\Sigma$, use
+$\Lambda\Sigma = I$ written in blocks. The $(f, o)$ block gives
+$\Lambda_{ff}\Sigma_{fo} + \Lambda_{fo}\Sigma_{oo} = 0$, so
+$\Lambda_{ff}^{-1}\Lambda_{fo} = -\Sigma_{fo}\Sigma_{oo}^{-1}$. The $(f, f)$ block gives
+$\Lambda_{ff}\Sigma_{ff} + \Lambda_{fo}\Sigma_{of} = I$; multiply by $\Lambda_{ff}^{-1}$
+and substitute the previous identity to get
+$\Lambda_{ff}^{-1} = \Sigma_{ff} - \Sigma_{fo}\Sigma_{oo}^{-1}\Sigma_{of}$. Therefore
+
+$$
+x_f \mid x_o \sim \mathcal N\!\big(\mu_f + \Sigma_{fo}\Sigma_{oo}^{-1}(x_o - \mu_o),\;
+\Sigma_{ff} - \Sigma_{fo}\Sigma_{oo}^{-1}\Sigma_{of}\big).
+$$
+
+Read it: the conditional mean moves from $\mu_f$ by the observed residual, scaled by
+the regression coefficient $\Sigma_{fo}\Sigma_{oo}^{-1}$; the conditional covariance
+shrinks by what the observed coordinates explain. Observing never increases a
+Gaussian's variance.
+
+### Change of variables, derived
+
+One dimension first. Let $X$ have density $p_X$ and let $y = f(x)$ with $f$ smooth,
+strictly increasing, and inverse $g = f^{-1}$. Cumulative distribution functions
+transform without any factor: $P(Y \le y) = P(X \le g(y))$. Differentiate both sides
+with respect to $y$ using the chain rule:
+
+$$
+p_Y(y) = p_X(g(y))\,g'(y).
+$$
+
+If $f$ is decreasing the inequality flips and a minus sign appears, so in general
+$p_Y(y) = p_X(g(y))\,|g'(y)|$. The factor $|g'(y)|$ says how much an interval $\dd y$ is
+stretched when mapped back to $x$: density is mass per unit length, and the length
+changed.
+
+In $d$ dimensions the same argument applies to volumes. A small box of volume
+$\dd y$ around $y$ maps back to a parallelepiped of volume $|\det J_g(y)|\,\dd y$, where
+$J_g$ is the Jacobian matrix of $g$, so
+
+$$
+\log p_Y(y) = \log p_X(g(y)) + \log\left|\det J_g(y)\right|.
+$$
+
+Note that the Jacobian is of the *inverse* map, evaluated at $y$. Equivalently, since
+$J_g(y) = J_f(x)^{-1}$, one can subtract $\log|\det J_f(x)|$ instead; both forms appear
+in the literature and mixing them is the classic bug. Step 2 implements the $g$ form
+with `jax.jacfwd`, and Module 2b applies it to $\lambda = e^{\phi}$ where
+$\log|\dd\lambda/\dd\phi| = \phi$.
+
+### Matrix calculus, derived
+
+Work with differentials: $\dd$ of an expression, then read off the gradient from
+$\dd f = \tr(G^\top \dd A)$, which means $\nabla_A f = G$.
+
+**$\log\det A$.** Jacobi's formula says $\dd\det A = \det A\,\tr(A^{-1}\dd A)$ (expand the
+determinant along any row; each cofactor is $\det A$ times an entry of $A^{-1}$). Hence
+$\dd\log\det A = \tr(A^{-1}\dd A) = \tr\big((A^{-\top})^\top\dd A\big)$, so
+$\nabla_A\log\det A = A^{-\top}$. For symmetric $A$ this is $A^{-1}$; the test uses a
+non-symmetric $A$ to catch the missing transpose.
+
+**$x^\top A x$.** $\dd(x^\top A x) = \dd x^\top A x + x^\top A\,\dd x = \dd x^\top(A + A^\top)x$,
+using that a scalar equals its transpose. So $\nabla_x\,x^\top A x = (A + A^\top)x$,
+which is $2Ax$ only when $A$ is symmetric.
+
+**$\tr(A^{-1}B)$.** From $A A^{-1} = I$, $\dd A\,A^{-1} + A\,\dd(A^{-1}) = 0$, so
+$\dd(A^{-1}) = -A^{-1}\dd A\,A^{-1}$. Then
+$\dd\tr(A^{-1}B) = -\tr(A^{-1}\dd A\,A^{-1}B) = -\tr(A^{-1}BA^{-1}\dd A)$ by cyclicity of
+the trace, giving $\nabla_A\tr(A^{-1}B) = -(A^{-1}BA^{-1})^\top$.
+
+These three rules, plus the chain rule, are enough to differentiate every Gaussian
+expression in the workshop by hand. In practice you will let JAX do it; the point of
+deriving them once is to be able to check JAX, and to recognise $A^{-\top}$ when it
+appears in a natural-gradient update.
+
+### KL between Gaussians, derived
+
+For $p = \mathcal N(\mu_0, \Sigma_0)$ and $q = \mathcal N(\mu_1, \Sigma_1)$ in $\R^d$,
+start from the definition $\KL(p\,\|\,q) = \E_p[\log p(x) - \log q(x)]$ and use one
+identity: for $x$ with mean $m$ and covariance $S$ and any matrix $M$,
+$\E[x^\top M x] = \tr(MS) + m^\top M m$ (expand $x = m + (x - m)$ and take expectations).
+
+The $p$ term:
+$\E_p[\log p(x)] = -\tfrac12\log\det(2\pi\Sigma_0) - \tfrac12\E_p[(x - \mu_0)^\top\Sigma_0^{-1}(x - \mu_0)]
+= -\tfrac12\log\det(2\pi\Sigma_0) - \tfrac12\tr(\Sigma_0^{-1}\Sigma_0) = -\tfrac12\log\det(2\pi\Sigma_0) - \tfrac d2$.
+
+The $q$ term: $x - \mu_1$ has mean $\mu_0 - \mu_1$ and covariance $\Sigma_0$ under $p$, so
+$\E_p[(x - \mu_1)^\top\Sigma_1^{-1}(x - \mu_1)] = \tr(\Sigma_1^{-1}\Sigma_0) + (\mu_0 - \mu_1)^\top\Sigma_1^{-1}(\mu_0 - \mu_1)$,
+and $\E_p[\log q(x)] = -\tfrac12\log\det(2\pi\Sigma_1) - \tfrac12\big[\tr(\Sigma_1^{-1}\Sigma_0) + (\mu_0-\mu_1)^\top\Sigma_1^{-1}(\mu_0-\mu_1)\big]$.
+
+Subtract; the $(2\pi)^d$ factors cancel:
+
+$$
+\KL(p\,\|\,q) = \tfrac12\Big(\tr(\Sigma_1^{-1}\Sigma_0) + (\mu_1-\mu_0)^\top\Sigma_1^{-1}(\mu_1-\mu_0) - d + \log\tfrac{\det\Sigma_1}{\det\Sigma_0}\Big).
+$$
+
+Each term has a reading: the trace term penalises $p$ being wider than $q$ along $q$'s
+axes, the quadratic term penalises a mean mismatch in units of $q$'s covariance, and the
+log-determinant ratio penalises $p$ being narrower. At $p = q$ the trace is $d$, the
+quadratic is $0$ and the log ratio is $0$, so the divergence is $0$. With Cholesky
+factors $L_0L_0^\top = \Sigma_0$ and $L_1L_1^\top = \Sigma_1$,
+$\tr(\Sigma_1^{-1}\Sigma_0) = \|L_1^{-1}L_0\|_F^2$, the quadratic term is
+$\|L_1^{-1}(\mu_1 - \mu_0)\|^2$, and $\log\det\Sigma = 2\sum_i\log L_{ii}$; no inverse is
+ever formed.
+
+### Common misconceptions
+
+- **"Conditioning a Gaussian needs the inverse of the whole covariance."** It needs a
+  solve against the observed block only. Inverting a full $d\times d$ matrix to
+  condition on two coordinates is both slow and numerically worse.
+- **"The Jacobian is of the forward map at $x$."** It is of the inverse map at $y$ (or
+  equivalently the reciprocal of the forward Jacobian). The log-normal test passes with
+  either sign convention only by accident of the particular map; the linear-map test
+  does not.
+- **"$\nabla_x x^\top A x = 2Ax$."** Only for symmetric $A$.
+- **"KL is a distance."** It is asymmetric: $\KL(p\,\|\,q) \ne \KL(q\,\|\,p)$ in general,
+  and Module 4 makes a point of which one variational inference minimises.
+
+## Steps
+
+Every step edits `workshop/m02_diagnostic.py`.
+
+### Step 1 — Gaussian conditioning
+
+**What this computes.** The conditional mean and covariance of the free coordinates,
+using the covariance-block formula, with the observed block solved rather than
+inverted.
+
+Implement `gaussian_condition(mu, cov, obs_idx, x_obs)`. Build a boolean mask from
+`obs_idx`, recover the free indices with `jnp.nonzero(~mask, size=d - len(obs_idx))`,
+index the blocks with `jnp.ix_`, and solve rather than invert. Return the conditional
+mean and covariance of the free coordinates in their original order.
+
+Sanity check: for a bivariate Gaussian with unit variances and correlation $\rho = 0.8$,
+conditioning the first coordinate on the second equal to $1$ gives mean $0.8$ and
+variance $1 - 0.64 = 0.36$.
+
+```bash
+pytest tests/m02 -k step1
+```
+
+You should see 2 passed: an exact comparison with the block formula and a check that
+conditioning on a thin slice of 400 000 samples agrees with your conditional mean.
+
+### Step 2 — Change of variables
+
+**What this computes.** The log density of $y = f(x)$ from the log density of $x$ and
+the inverse map, with the Jacobian supplied by forward-mode autodiff.
+
+Implement `pushforward_logpdf(log_p_x, f_inv, y)` using `jax.jacfwd(f_inv)(y)` and
+`jnp.linalg.slogdet`. The function receives the inverse map, not the forward map.
+
+Sanity check: for $x \sim \mathcal N(0, 1)$ and $y = e^x$, the log density at $y = 1$ is
+$\log\mathcal N(0 \mid 0, 1) + \log|\dd\log y/\dd y|_{y=1} = -0.9189 + 0 = -0.9189$.
+
+```bash
+pytest tests/m02 -k step2
+```
+
+You should see 2 passed: the log-normal against `scipy.stats.lognorm` and a linear map
+in two dimensions against the implied Gaussian.
+
+### Step 3 — Matrix calculus by hand
+
+**What this computes.** The three gradients from the Background, written as formulas,
+checked against JAX's autodiff on both symmetric and non-symmetric inputs.
+
+Implement `grad_logdet(A)`, `grad_quadratic_form_x(A, x)` and `grad_trace_inv(A, B)`
+with the closed forms above. Autodiff is not allowed here; the test compares your
+formulas against `jax.grad`, including on a non-symmetric $A$.
+
+Sanity check: `grad_logdet(jnp.array([[2., 1.], [0., 1.]]))` is the transpose of the
+inverse, $\begin{pmatrix} 0.5 & 0 \\ -0.5 & 1\end{pmatrix}$.
+
+```bash
+pytest tests/m02 -k step3
+```
+
+You should see 3 passed.
+
+### Step 4 — KL between Gaussians
+
+**What this computes.** The closed form derived above, in the Cholesky form.
+
+Implement `kl_gaussians(mu0, cov0, mu1, cov1)` with Cholesky factors $L_0, L_1$:
+$\tr(\Sigma_1^{-1}\Sigma_0) = \|L_1^{-1}L_0\|_F^2$ and the quadratic term is
+$\|L_1^{-1}(\mu_1 - \mu_0)\|^2$. No explicit inverses.
+
+Sanity check: in one dimension with $\sigma_0 = \sigma_1 = 1$ and means $0$ and $1$ the
+divergence is $\tfrac12$; with equal means and $\sigma_0 = 2$, $\sigma_1 = 1$ it is
+$\tfrac12(4 - 1 - \log 4) = 0.807$.
+
+```bash
+pytest tests/m02 -k step4
+```
+
+You should see 3 passed: zero for identical arguments, the univariate textbook formula,
+and agreement with a 200 000-sample Monte Carlo estimate within four standard errors.
+
+### Step 5 — Conceptual quiz
+
+**What this checks.** Eight facts that Modules 3 and 4 use without comment. Each
+question is followed by a hint at the idea behind it, not the answer. Return a dict
+from `quiz_answers()`, one lower-case letter per question; the test compares hashes.
+
+1. For convex $f$ and any random variable $X$ with finite mean, Jensen's inequality states
+   $\E[f(X)] \;?\; f(\E[X])$. (a) $\le$ (b) $\ge$ (c) $=$
+   *Idea: for a convex curve, the chord between two points lies above the curve, and an
+   average of function values is a point on such chords.*
+2. The log-partition function $A(\eta)$ of a minimal exponential family is
+   (a) concave (b) linear in $\eta$ (c) strictly convex.
+   *Idea: what is the second derivative of a log-normaliser? Module 3 derives it; the
+   answer to question 3 is the key.*
+3. $\nabla^2 A(\eta)$ equals (a) $\mathrm{Cov}_\eta[t(x)]$, the Fisher information
+   (b) $\E_\eta[t(x)]$ (c) the Hessian of $\log h$.
+   *Idea: differentiate $\log\int h\,e^{\eta^\top t}$ twice under the integral sign and
+   recognise a variance.*
+4. If $y = f(x)$ with $f$ a diffeomorphism, then $p_Y(y) = p_X(f^{-1}(y))$ times
+   (a) $|\det J_f(x)|$ (b) $|\det J_{f^{-1}}(y)|$ (c) $1$.
+   *Idea: see the derivation above; which map's Jacobian, evaluated where?*
+5. Under $x \sim p(x; \theta)$, the expected score $\E[\nabla_\theta \log p(x; \theta)]$ is
+   (a) the Fisher information (b) dependent on $\theta$ (c) $0$.
+   *Idea: differentiate $\int p(x;\theta)\,\dd x = 1$ with respect to $\theta$ and
+   rewrite $\nabla p$ as $p\nabla\log p$.*
+6. For $x \sim \mathcal N(\mu, \Sigma)$ and a matrix $M$, $\mathrm{Cov}(Mx)$ is
+   (a) $M\Sigma M^\top$ (b) $M^\top\Sigma M$ (c) $M\Sigma$.
+   *Idea: write out $\E[(Mx - M\mu)(Mx - M\mu)^\top]$.*
+7. Mutual information $I(X;Y)$ equals $\KL\big(p(x,y)\,\|\,\cdot\big)$ with the second
+   argument (a) $p(x)p(y)$ (b) $p(x\mid y)$ (c) $p(y)$.
+   *Idea: mutual information measures how far the joint is from independence.*
+8. The gradient of $f(x) = \log\sum_i e^{x_i}$ is (a) $e^{x}$ (b) $\mathrm{softmax}(x)$
+   (c) $1/\sum_i e^{x_i}$.
+   *Idea: differentiate; the result is a ratio that sums to one.*
+
+```bash
+pytest tests/m02 -k step5
+```
+
+You should see 1 passed. A failure lists the question ids that are wrong.
+
+## Checkpoint
+
+::: {.callout-tip title="Checkpoint"}
+```bash
+pytest tests/m02
+```
+11 tests pass. If a step fails, work through its derivation above with pen and paper
+first, then the review item below, then return. Day 1 assumes all four topics.
+:::
+
+**Review list.** Each item is what to study if the corresponding step fails after
+reading the derivation.
+
+| Step | Review |
+|---|---|
+| 1 | Bishop, *PRML*, Section 2.3.1 (conditional Gaussian distributions). Petersen and Pedersen, *The Matrix Cookbook*, Section 8.1. Work the $2\times2$ case by hand. |
+| 2 | Murphy, *PML: Advanced Topics*, Section 2.8 (transformations of random variables). Do the one-dimensional case with $y = x^3$ by hand and check it integrates to one. |
+| 3 | Petersen and Pedersen, *The Matrix Cookbook*, Sections 2.1–2.5. Verify each identity numerically on a $2\times2$ matrix with finite differences before trusting the formula. |
+| 4 | Bishop, *PRML*, Exercise 2.13 and Section 1.6.1. Re-derive the univariate case, then the diagonal multivariate case, then the general one. |
+| 5 | Wainwright and Jordan (2008), Sections 3.1–3.3, for questions 2 and 3; MacKay, *ITILA*, Chapter 2, for questions 1 and 7; Bishop, *PRML*, Appendix C, for questions 6 and 8. Module 2b and Module 3 cover questions 2, 3 and 5 in full; it is fine to return to this quiz after them. |
+
+## Challenge
+
+::: {.callout-note title="Challenge"}
+Show that for an exponential family with log-partition $A$, the KL divergence between
+members with natural parameters $\eta_p$ and $\eta_q$ equals the Bregman divergence
+$A(\eta_q) - A(\eta_p) - (\eta_q - \eta_p)^\top \nabla A(\eta_p)$, and verify it
+numerically for the univariate Gaussian using your `kl_gaussians`. You will implement
+this identity in [Module 4](../day1/m04-kl-bregman.qmd).
+:::
+
+## Going deeper
+
+- Bishop, *Pattern Recognition and Machine Learning* (Springer, 2006), Chapter 2 and
+  Appendix C (properties of matrices).
+- Petersen and Pedersen, *The Matrix Cookbook* (Technical University of Denmark, 2012).
+- MacKay, *Information Theory, Inference, and Learning Algorithms* (Cambridge University
+  Press, 2003), Chapters 2 and 8.
+- Wainwright and Jordan, "Graphical Models, Exponential Families, and Variational
+  Inference", *Foundations and Trends in Machine Learning* 1(1–2), 2008, Chapter 3.
+- Magnus and Neudecker, *Matrix Differential Calculus with Applications in Statistics
+  and Econometrics* (Wiley, 3rd edition, 2019), for the differential method used above.
+
+## Troubleshooting
+
+::: {.callout-warning title="Troubleshooting"}
+**Step 1 raises a shape error from `jnp.nonzero`.** Pass `size=` so the output shape
+is static; without it the function is not traceable.
+
+**Step 2 passes the log-normal test and fails the linear test.** You used the
+Jacobian of the forward map instead of the inverse map, or dropped the sign handling
+of `slogdet`.
+
+**Step 3 `grad_logdet` fails only for the non-symmetric matrix.** You returned
+$A^{-1}$ rather than $A^{-\top}$.
+
+**Step 4 Monte Carlo test fails while the formula tests pass.** Check the order of
+arguments: the test computes $\KL(p_0 \,\|\, p_1)$ with samples from $p_0$. KL is
+asymmetric; swapping the arguments gives a different number.
+
+**"I can follow each derivation but could not have produced it."** That is the normal
+state after one reading. Close the page and reproduce the Gaussian-conditioning
+derivation from the product rule and completing the square; if it takes under twenty
+minutes, you are ready for Day 1.
+
+**Quiz question 2 or 3 is wrong after Module 3.** Re-read "Why $A$ generates
+everything" in Module 3; the second derivative of $A$ is a covariance.
+:::

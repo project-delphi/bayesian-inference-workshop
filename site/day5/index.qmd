@@ -1,0 +1,94 @@
+---
+title: "Day 5 — Capstone: choosing a track"
+---
+
+## Overview
+
+Day 5 is one module, chosen from three. Each track is a full seven-hour build that ends
+in a short written report. All three use the machinery you built on Days 1 to 4; none
+introduces a new framework, and each one builds its new ideas up from first principles
+on the page, so you do not need to have met flows, diffusion models or causal models
+before.
+
+| Track | What you build | Builds on | Choose if |
+|---|---|---|---|
+| [A — Normalising flows](m15a-flows.qmd) | RealNVP affine-coupling flow in JAX, used as a variational family against the hierarchical-uplift funnel; compared with mean-field VI and HMC | Modules 8, 10, 11 | You want to go deeper into variational inference and expressive approximating families |
+| [B — Score-based diffusion](m15b-diffusion.qmd) | VP-SDE forward process, denoising score matching, Euler–Maruyama reverse sampler, probability-flow ODE with Hutchinson log-likelihood, on backbone torsion-angle data | Modules 1, 7, 8 | You want generative modelling as continuous-time latent-variable inference |
+| [C — Structural causal models](m15c-scm.qmd) | A `do` handler on your effect-handler PPL, abduction–action–prediction counterfactuals by posterior inference over exogenous noise, twin networks, on an ad-spend SCM | Modules 12, 13 | You want to connect inference to intervention and counterfactual questions |
+
+Each track page follows the usual template. The report is specified in the
+[report template](report-template.qmd), which is the same for all tracks with
+track-specific prompts.
+
+## What each track is, in plain terms
+
+**Track A — Normalising flows.** On Day 2 you approximated a posterior with
+independent Gaussians, and on Day 3 you saw that this gets variances wrong. For a
+hierarchical model it is worse: the posterior is funnel-shaped and the independent
+Gaussians miss most of the uncertainty about how different the groups are. A
+normalising flow fixes this by starting from a simple distribution and passing it
+through a learned, invertible warp. Because the warp is invertible, you can compute the
+density of the result exactly, so all of Day 2's machinery still applies, with a far
+more flexible shape. You build the warp from scratch, fit it to the funnel, and
+measure how much closer it gets to the HMC answer than the Day 2 fit did.
+
+**Track B — Score-based diffusion.** This track turns inference around: instead of
+inferring unknowns from data, you learn a model that generates data like yours and can
+tell you how probable any point is. The method is to take a data point, add a small
+amount of noise, add a little more, and continue until it is pure noise; then train a
+network to undo one small step at a time. Starting from noise and running the trained
+network backwards produces new data. The track shows that this is a latent-variable
+model with a fixed variational posterior, that the training objective is a kind of
+ELBO, and that a related deterministic process gives exact likelihoods. The data are
+two-dimensional protein backbone angles with three clusters.
+
+**Track C — Structural causal models.** Everything before Day 5 answered "given what
+I observed, what is plausible?". Decisions often need "what happens if I *do* this?" and
+"what would have happened last week if I had done that instead?". Those are not
+conditional probabilities, and a model of the data's joint distribution cannot answer
+them. A structural causal model adds one ingredient, a direction of cause for each
+variable, and with it both questions become computable. The surprising part, and the
+reason this track belongs in this workshop, is that the "what would have happened"
+question is a Bayesian inference problem over the model's noise terms, which the PPL
+and engines from Days 2 to 4 solve as they are. The example is a marketing model of
+seasonality, ad spend, traffic and conversions.
+
+## How to choose
+
+- **Choose A** if you enjoyed Days 2 and 3 most and want to see how the gap between
+  variational inference and sampling is closed in practice. It is the most
+  self-contained track and the best choice if you are behind on Day 4. Expect to think
+  about Jacobians, invertibility and optimisation stability.
+- **Choose B** if you want to understand the generative models behind current image,
+  audio and protein-design systems from the ground up rather than from a library. It
+  has the most new mathematics (a stochastic differential equation and an ordinary
+  one) but each piece is derived on the page, and the code is the shortest of the
+  three. Expect to think about noise, time and numerical integration.
+- **Choose C** if your work involves decisions, experiments, attribution or
+  "what if" questions, and you want to see how a probabilistic program answers them.
+  It has the least new mathematics and the most new concepts; the difficulty is in
+  keeping three kinds of question distinct. Expect to think about graphs, mechanisms
+  and what a model can and cannot know from logs.
+
+If you are unsure, read the "problem in plain terms" section of each track page; they
+are written to be read in ten minutes each.
+
+## Time budget
+
+| Block | Time |
+|---|---|
+| Background and derivations | 2 h |
+| Steps 1 to 4 (core build with tests) | 3 h |
+| Step 5 (experiment for the report) | 1 h |
+| Report | 1 h |
+
+## Prerequisites
+
+Track A requires passing checkpoints for Modules 8 and 11. Track B requires Modules 7
+and 8. Track C requires Modules 12 and 13. Participants who are behind on Day 4 should
+choose Track A or B.
+
+## Working in pairs
+
+Tracks may be done in pairs. If so, both participants submit the same code and separate
+reports, and the report must say which experiment each person ran.

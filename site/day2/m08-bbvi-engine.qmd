@@ -1,0 +1,467 @@
+---
+title: "Module 8 — A black-box variational inference engine"
+---
+
+## Overview
+
+**Why this module exists.** Modules 6 and 7 supplied the two ingredients of modern
+variational inference: an objective (the ELBO) and a low-variance way to estimate its
+gradient (the pathwise estimator). This module assembles them into a general-purpose
+engine. "Black-box" means the engine asks nothing of the model beyond a function that
+returns $\log p(x, z)$ for a vector $z$ and can be differentiated by JAX. To make that
+true for real models, three practical problems must be solved: parameters that live on
+constrained spaces (a variance cannot be negative), an optimiser that copes with noisy
+gradients of very different scales, and data sets too large to touch on every step.
+Each has a standard answer, and each is derived here from first principles and then
+written by hand.
+
+**What you'll build:** in `workshop/m08_bbvi.py`, the engine that the rest of the
+workshop uses for variational fits: elementwise bijectors with log-determinant
+Jacobians so constrained parameters live on $\R^d$, a hand-written Adam, a mean-field
+Gaussian family with analytic entropy, a `fit` function that maximises the
+reparameterised ELBO under `lax.scan`, and a stochastic-VI variant that subsamples a
+50 000-row ad click-through table.
+
+**Estimated time:** 2.5 hours (about 45 minutes reading, 1 hour 45 building).
+
+**Prerequisites:** [Module 7](m07-gradient-estimators.qmd), and
+[Module 2](../day0/m02-diagnostic.qmd) Step 2 for the change of variables. Terms are
+in the [glossary](../reference/glossary.qmd).
+
+**Datasets:** `saas_churn()` (500 rows) for the full-data fit; `ad_clicks()` (50 000
+impressions, 8 standardised features plus intercept, base click-through rate near 4%)
+for stochastic VI.
+
+## Learning objectives
+
+By the end of this module you can:
+
+1. Explain why a Gaussian variational family needs an unconstrained parameter space,
+   map a constrained parameter to $\R^d$ with a bijector, and derive the Jacobian
+   correction to the log joint.
+2. Build Adam up from plain gradient ascent and state what each of its three
+   modifications fixes.
+3. Write the reparameterised ELBO with analytic entropy and optimise it to convergence,
+   reading the trace correctly.
+4. Derive the unbiased minibatch estimate of the log joint and explain what the $N/B$
+   scaling assumes.
+5. Diagnose a variational fit against a Laplace reference: location, dispersion and
+   evidence.
+
+## Background
+
+### The problem in plain terms
+
+You have a model, a vector of unknowns $z$, and a function `log_joint(z)` returning
+$\log p(x, z)$. You want the mean-field Gaussian $q_\phi(z) = \mathcal N(\mathrm{loc},
+\mathrm{diag}(\mathrm{scale}^2))$ that maximises the ELBO, with no further derivation.
+The recipe on every step is:
+
+1. draw $\varepsilon\sim\mathcal N(0, I)$,
+2. transform to $z = \mathrm{loc} + \mathrm{scale}\odot\varepsilon$,
+3. evaluate $\log p(x, z)$ and add the entropy of $q_\phi$,
+4. average over a few draws, differentiate with respect to $\phi$ (Module 7, Idea 2),
+5. take an optimiser step on $\phi$.
+
+Three obstacles stand between this recipe and a working engine, and the rest of the
+Background removes them one at a time.
+
+### Definitions
+
+| Term | Meaning |
+|---|---|
+| unconstrained space | $\R^d$; where a Gaussian $q$ can live and where gradient steps never leave the domain |
+| bijector | a smooth invertible map $T$ from $\R^d$ to a constrained set, with a computable $\log\lvert\det J_T\rvert$ |
+| Jacobian correction | the term $\log\lvert\det J_T(\zeta)\rvert$ added to the log joint so that densities transform correctly |
+| Adam | adaptive-moment gradient method: momentum plus per-coordinate step scaling plus bias correction |
+| minibatch | a random subset of $B$ out of $N$ observations used to estimate a sum over all $N$ |
+| stochastic VI | ELBO ascent with gradients that are noisy both from sampling $q$ and from subsampling data |
+
+### Obstacle 1: constrained parameters and the Jacobian
+
+A variance, a rate, a probability: many model parameters have a restricted domain. A
+Gaussian $q$ puts mass on all of $\R$, so fitting one directly to a variance would assign
+probability to negative values and the log joint would return `nan` there. The fix
+(Kucukelbir et al. 2017) is to fit the Gaussian to a transformed parameter
+$\zeta = T^{-1}(\theta) \in \R^d$ and let $T$ map back: $\theta = \exp(\zeta)$ for a
+positive parameter, $\sigma(\zeta)$ for a probability.
+
+But densities do not simply compose with maps. In one dimension, if $\theta = T(\zeta)$
+and $p_\theta$ is the density of $\theta$, the density of $\zeta$ is
+
+$$
+p_\zeta(\zeta) = p_\theta\big(T(\zeta)\big)\,\left|\frac{\dd T}{\dd\zeta}(\zeta)\right|,
+$$
+
+because probability mass in a small interval must be conserved: an interval of width
+$\dd\zeta$ maps to one of width $|T'(\zeta)|\dd\zeta$ on the $\theta$ side, and the
+probability of landing in it is $p_\theta\,|T'|\,\dd\zeta$. This is the change of
+variables you implemented in Module 2 Step 2. In $d$ dimensions the factor is
+$|\det J_T(\zeta)|$, and taking logs,
+
+$$
+\log p(x, \zeta) = \log p\big(x, T(\zeta)\big) + \log\left|\det J_T(\zeta)\right|.
+$$
+
+Omit the second term and the fit maximises the wrong objective: the ELBO in
+$\zeta$-space with the Jacobian is what equals $\log p(x) - \KL(q\,\|\,p(\zeta\mid x))$.
+For elementwise bijectors the Jacobian is diagonal and its log-determinant is a sum of
+scalar derivatives: $\sum_i\zeta_i$ for $\exp$ (since $\dd e^\zeta/\dd\zeta = e^\zeta$),
+$\sum_i\log\sigma(\zeta_i)$ for softplus (its derivative is the sigmoid), and
+$\sum_i[\log\sigma(\zeta_i) + \log\sigma(-\zeta_i)]$ for the logistic sigmoid (its
+derivative is $\sigma(1 - \sigma)$). The inverse of softplus,
+$\zeta = y + \log(1 - e^{-y})$, must be written with `expm1` to be stable for small $y$.
+
+![Left: the three bijectors from $\R$ to a constrained domain. Right: their log-derivatives, the one-dimensional log-Jacobians that `log_det_jacobian` sums over elements.](../figures/m08_bijectors.png)
+
+::: {.callout-important title="Jacobian check"}
+This is the [change of variables of Module 2b](../day0/m02b-foundations.qmd#sec-jacobian)
+packaged as a class. Check any bijector you write against autodiff before using it in
+`fit`:
+
+```python
+from workshop.jacobian_check import check_change_of_variables
+b = Softplus()
+log_p_theta = lambda th: jss.gamma.logpdf(th, a=2.0, scale=2.0)              # density on the constrained side
+log_p_zeta  = lambda z: log_p_theta(b.forward(z)) + b.log_det_jacobian(z)    # your bijector's claim
+check_change_of_variables(log_p_theta, b.forward, log_p_zeta, jnp.linspace(-3, 3, 7))  # zeros
+```
+
+The Step 1 tests do the same comparison with `jax.jacfwd`; this is the version you can
+run on a bijector of your own, or on a `Chain`.
+:::
+
+### Obstacle 2: an optimiser for noisy gradients (Adam, built up)
+
+Plain gradient ascent, $\phi_t = \phi_{t-1} + \alpha g_t$, has two problems with
+Monte Carlo gradients. The gradient is noisy, so the iterates jitter; and its
+coordinates have very different scales (a `log_scale` gradient is $O(1)$ while a `loc`
+gradient on a sharp posterior can be $O(100)$), so no single $\alpha$ suits both. Adam
+fixes each in turn.
+
+*Momentum.* Average the gradient over recent steps with an exponential moving average,
+$m_t = \beta_1 m_{t-1} + (1 - \beta_1)g_t$, so noise cancels and the direction is
+smoothed.
+
+*Per-coordinate scaling.* Track a moving average of the squared gradient,
+$v_t = \beta_2 v_{t-1} + (1 - \beta_2)g_t^2$, and divide the step by $\sqrt{v_t}$. A
+coordinate with gradients of typical size $100$ then moves about as far per step as one
+with gradients of size $1$: the step is roughly $\alpha$ in every coordinate.
+
+*Bias correction.* Both averages start at zero, so for the first few hundred steps they
+underestimate the true means by the factor $(1 - \beta^t)$. Dividing by that factor,
+$\hat m_t = m_t/(1 - \beta_1^t)$ and $\hat v_t = v_t/(1 - \beta_2^t)$, removes the
+start-up bias. The update is
+
+$$
+\phi_t = \phi_{t-1} + \alpha\,\frac{\hat m_t}{\sqrt{\hat v_t} + \epsilon}.
+$$
+
+On the first step $\hat m_1 = g_1$ and $\hat v_1 = g_1^2$, so the step is exactly
+$\alpha\,\mathrm{sign}(g_1)$, which the Step 2 test checks. Because the step size is
+normalised, a converged fit does not sit still: it wanders by a few multiples of
+$\alpha$ around the optimum regardless of how small the gradient noise is. That is why
+the final `loc` of a fit is within about $0.06$ standard deviations of the truth at
+$\alpha = 0.01$ and not closer, and why a decaying $\alpha$ (Challenge 3) tightens it.
+
+### The objective, with analytic entropy
+
+With $q_\phi = \mathcal N(\mathrm{loc}, \mathrm{diag}(e^{2\,\text{log\_scale}}))$ the ELBO
+is $\E_q[\log p(x, z)] + H[q_\phi]$. The first term is estimated by the pathwise
+estimator. The second is the entropy of a diagonal Gaussian, which has a closed form:
+
+$$
+H[q_\phi] = \sum_{i=1}^d\text{log\_scale}_i + \tfrac d2\log(2\pi e).
+$$
+
+Using it instead of $-\frac1n\sum_s\log q_\phi(z_s)$ removes one source of Monte Carlo
+noise at no cost. The gradient of the entropy with respect to `log_scale` is simply
+$1$ in every coordinate: the entropy term pushes every scale up at a constant rate, and
+the log joint's curvature pushes back. At the optimum of a Gaussian target with
+standard deviation $s$, those balance at $\mathrm{scale} = s$, which is the closed form
+the Step 4 test checks.
+
+### Obstacle 3: large data and the minibatch estimate
+
+For $N$ conditionally independent observations,
+$\log p(x, z) = \log p(z) + \sum_{i=1}^N\log p(x_i\mid z)$, and evaluating the sum on
+every optimiser step costs $O(N)$. Draw instead a minibatch $B$ of size $|B|$ uniformly
+at random and scale its contribution up:
+
+$$
+\E_B\Big[\frac{N}{|B|}\sum_{i\in B}\log p(x_i\mid z)\Big]
+= \frac{N}{|B|}\sum_{i\in B}\E\big[\log p(x_{i}\mid z)\big]
+= \frac{N}{|B|}\cdot|B|\cdot\frac1N\sum_{i=1}^N\log p(x_i\mid z)
+= \sum_{i=1}^N\log p(x_i\mid z).
+$$
+
+Each index in the batch is a uniform draw from $\{1, \dots, N\}$, so the expected
+contribution of one slot is the average term; $|B|$ slots times $N/|B|$ recovers the
+sum. Thus $\log p(z) + \frac{N}{|B|}\sum_{i\in B}\log p(x_i\mid z)$ is an unbiased
+estimate of the log joint, and its pathwise gradient is an unbiased estimate of the ELBO
+gradient. Each step costs $O(|B|)$. The assumption is conditional independence of the
+observations given $z$, so that the log-likelihood is a sum; models with per-datum
+latent variables need the local variables handled separately, which is what Module 14
+does. Forgetting the factor $N/|B|$ is the single most common bug: the likelihood then
+counts for $|B|/N$ of its weight and the fit collapses towards the prior.
+
+### A worked example with numbers
+
+**A target you can solve in your head.** Let the "posterior" be a two-dimensional
+Gaussian with independent coordinates, means $(1, -2)$ and standard deviations
+$(0.5, 2)$. The mean-field Gaussian family contains it, so the optimum has
+$\mathrm{loc} = (1, -2)$, $\mathrm{scale} = (0.5, 2)$, and the ELBO at the optimum equals
+the log evidence, which is $0$ because the target is normalised. The Step 4 test fits
+this and asks for the location within $0.06$ scale units and the scales within 8%,
+which is the Adam wander discussed above.
+
+**The churn posterior.** Fit with $\alpha = 0.02$, 8 samples per step, 3 000 steps:
+
+| coefficient | intercept | tenure | active days | tickets | enterprise |
+|---|---|---|---|---|---|
+| Laplace mean | $-0.95$ | $-0.59$ | $-1.23$ | $0.75$ | $-0.53$ |
+| VI loc | $-0.96$ | $-0.61$ | $-1.26$ | $0.74$ | $-0.57$ |
+| VI sd / Laplace sd | $0.84$ | $0.99$ | $0.89$ | $0.96$ | $0.88$ |
+
+Every location is within $0.2$ posterior standard deviations of the Laplace mean. Every
+scale is at or below the Laplace scale, most by 10 to 15%, and the two most correlated
+coordinates (intercept and enterprise, correlation $0.45$) are the most shrunk: this is
+the mean-field under-dispersion computed by hand in Module 6. The ELBO climbs from
+about $-316$ over the first hundred steps to $-248.2$ over the last hundred, against a
+Laplace evidence estimate of $-247.95$: a gap of a quarter of a nat, which is the KL
+from the mean-field fit to the posterior.
+
+**Stochastic VI on 50 000 ad impressions.** With batches of 500 and 3 000 steps the fit
+takes under a second after compilation, and lands within a few hundredths of the
+full-data Laplace mean on every coefficient (intercept $-3.20$ against $-3.20$; the
+first three feature effects $-0.25, 0.41, -0.28$ against $-0.31, 0.45, -0.30$, with
+posterior standard deviations near $0.02$). The base click-through rate implied by the
+intercept is $\sigma(-3.2) = 3.9\%$.
+
+### Reading the ELBO trace
+
+The trace is noisy because every step uses fresh samples and, in SVI, a fresh batch. Do
+not read single values. Compare the mean of the last hundred steps with the mean of the
+first hundred, and judge convergence by whether a running mean has flattened. A trace
+that drifts down over hundreds of steps is a bug (sign, Jacobian, learning rate); a trace
+that jitters by a few nats around a flat level is converged. The `fit` tests encode
+exactly this: last-100 mean above first-100 mean, and the final level inside a band
+around the Laplace evidence.
+
+### Why this matters later
+
+- Module 11 compares this fit with HMC on the same posterior, and the under-dispersion
+  in the table above becomes the headline finding.
+- Module 13 generates `log_joint` and the bijectors automatically from a probabilistic
+  program and calls `fit` unchanged.
+- Module 14's VAE replaces `loc` and `log_scale` with the outputs of a network, keeps
+  the pathwise ELBO, and uses this Adam.
+- Track A swaps the mean-field Gaussian for a flow and keeps everything else.
+
+### Common misconceptions
+
+- **"The ELBO must increase on every step."** The estimate is noisy; only its trend
+  must rise. A monotone trace is CAVI's property (Module 6), not stochastic VI's.
+- **"A higher ELBO means a better model."** A higher ELBO means a tighter bound on
+  *this* model's evidence with *this* family. Across models the gaps differ.
+- **"Mean-field VI gives calibrated uncertainty."** It gives means that are usually
+  good and variances that are systematically too small when the posterior is
+  correlated. Use it for point estimates and rough scales; check it against HMC before
+  trusting intervals.
+- **"The Jacobian term is an optional refinement."** Without it the objective is not
+  the ELBO of any model, and the fitted scale of a transformed parameter is wrong.
+
+## Steps
+
+Every step edits `workshop/m08_bbvi.py`.
+
+### Step 1 — Bijectors
+
+**What this computes.** The maps from $\R$ to positive reals (`Exp`, `Softplus`) and
+to $(0, 1)$ (`Sigmoid`), their inverses, and the log-derivative that the Jacobian
+correction needs, plus composition. The log-determinant is evaluated at the
+unconstrained input and summed over elements.
+
+Complete `Exp`, `Softplus`, `Sigmoid` and `Chain` (`Identity` is given): `forward(x)`,
+`inverse(y)` and `log_det_jacobian(x)`, the latter summed over elements and evaluated at
+the unconstrained point. `Chain.log_det_jacobian` accumulates each bijector's
+log-determinant at its own input.
+
+Sanity check: `Exp().log_det_jacobian(jnp.array([0.0, 1.0]))` is $1.0$ (the sum of the
+inputs); `Softplus().inverse(Softplus().forward(jnp.array([-20.0])))` returns $-20$
+without `nan`.
+
+```bash
+pytest tests/m08 -k step1
+```
+
+You should see 4 passed: round trips, log-determinants against `jax.jacfwd`, supports,
+and stability of the softplus inverse at $y = 10^{-8}$ and $y = 700$.
+
+### Step 2 — Adam
+
+**What this computes.** The three moving quantities ($m$, $v$, step count $t$) and the
+bias-corrected ascent step, on arbitrary pytrees so that both flat vectors and nested
+network parameters work.
+
+Implement `adam_init(params)` and `adam_update(grads, state, params, lr, b1, b2, eps)`
+for ascent on pytrees with `jax.tree_util.tree_map`. The state holds `m`, `v` and an
+integer step `t`.
+
+Sanity check: from `params = {"a": jnp.array([1.0, -3.0])}` and gradient
+`{"a": jnp.array([5.0, -0.1])}`, one step with `lr = 0.1` gives
+`{"a": [1.1, -3.1]}`: the sign of the gradient times the learning rate.
+
+```bash
+pytest tests/m08 -k step2
+```
+
+You should see 2 passed: the first step equals `lr * sign(g)`, and 600 steps converge
+on a concave quadratic.
+
+### Step 3 — Mean-field Gaussian family
+
+**What this computes.** Reparameterised sampling $\mathrm{loc} + e^{\text{log\_scale}}\odot\varepsilon$,
+the log density, and the analytic entropy.
+
+Complete `MeanFieldGaussian.sample`, `log_prob` and `entropy`.
+
+Sanity check: `MeanFieldGaussian(2).entropy({"loc": zeros, "log_scale": zeros})` is
+$\log(2\pi e) = 2.838$.
+
+```bash
+pytest tests/m08 -k step3
+```
+
+You should see 2 passed, including a check that `jax.grad` of the sample mean with
+respect to `loc` is exactly the pathwise value (no score term).
+
+### Step 4 — The optimiser
+
+**What this computes.** The five-step recipe from the start of the Background, in a
+`lax.scan` over per-step keys, returning the parameters and the ELBO trace.
+
+Implement `elbo_estimate(key, params, family, log_joint, n_samples)` and
+`fit(log_joint, dim, key, n_steps, lr, n_samples, init_params)` with
+`jax.value_and_grad` and `lax.scan` over per-step keys.
+
+Sanity check: on the churn log joint from Module 7 with `lr = 0.02`, 8 samples and
+3 000 steps, the final `loc` should match the VI row of the table above to two decimals
+and the last-100 ELBO mean should be about $-248.2$.
+
+```bash
+pytest tests/m08 -k step4
+```
+
+You should see 2 passed. On a diagonal Gaussian target the fit recovers location to
+within $0.06\,s$ and scales to 8%, with the ELBO converging to zero (the target is
+normalised). On the churn posterior the location is within three Laplace SDs, every scale
+is below $1.5\times$ the Laplace SD, the ELBO rises, and the final ELBO lies in
+$[\text{evidence} - 3, \text{evidence} + 1]$ nats.
+
+### Step 5 — Stochastic VI
+
+**What this computes.** The same optimiser with the log joint replaced by its unbiased
+minibatch estimate: prior plus $N/B$ times the batch log-likelihood.
+
+Implement `fit_svi(log_prior, log_lik_fn, data, dim, key, n_steps, batch_size, lr,
+n_samples, init_params)`: each step draws `batch_size` row indices with
+`jax.random.randint`, scales the minibatch log-likelihood by $N/B$, and takes one Adam
+step.
+
+Sanity check: on `ad_clicks()` the fitted intercept should be about $-3.20$. If it
+comes out near $0$, the $N/B$ factor is missing.
+
+```bash
+pytest tests/m08 -k step5
+```
+
+You should see 1 passed: 3 000 steps with batches of 500 on 50 000 rows finish in a few
+seconds and land within four SDs of a full-data Laplace fit on all nine coefficients.
+
+## Checkpoint
+
+::: {.callout-tip title="Checkpoint"}
+```bash
+pytest tests/m08
+```
+11 tests pass in under 10 seconds. The public API of this file (`MeanFieldGaussian`,
+`fit`, `fit_svi`, the bijectors, `adam_init`, `adam_update`) is used by Modules 11,
+13 and 14; do not change signatures. Before moving on, explain why the Jacobian term
+is needed and what goes wrong in SVI without the $N/B$ factor.
+
+**Which expectation did you just compute?** The ELBO, $\E_q[\log p(x, T(\zeta)) + \log|\det J_T|] + H[q]$,
+by a few reparameterised samples per step; and in SVI the full-data log likelihood
+$\sum_{i=1}^N \log p(x_i \mid \theta) = N\,\E_{i \sim \text{Uniform}}[\log p(x_i \mid \theta)]$,
+estimated from a minibatch. The $N/B$ factor is what makes the minibatch sum an
+unbiased estimate of that expectation.
+:::
+
+## Challenge
+
+::: {.callout-note title="Challenge"}
+1. Add a full-rank Gaussian family parameterised by a lower-triangular Cholesky
+   factor with a softplus diagonal. Fit the churn posterior and compare the pairwise
+   correlations with the Laplace covariance. Then compute the ELBO gap between
+   mean-field and full-rank fits; it should close most of the quarter-nat gap to the
+   Laplace evidence.
+2. Implement the natural-gradient step for the mean-field Gaussian using the Fisher
+   matrix of Module 3 (block diagonal in `loc` and `log_scale`), and compare
+   convergence in wall-clock time against Adam on the churn posterior.
+3. In `fit_svi`, add a learning-rate schedule $\rho_t = (t + \tau)^{-\kappa}$ with
+   $\kappa \in (0.5, 1]$ and show empirically that the final parameters fluctuate
+   less than with constant $\alpha$.
+:::
+
+## Going deeper
+
+- Kucukelbir, Tran, Ranganath, Gelman and Blei, "Automatic Differentiation Variational
+  Inference", *JMLR* 18, 2017: the transformation to $\R^d$, the mean-field and full-rank
+  Gaussians, and the step-size sequence. This module is a from-scratch ADVI.
+- Hoffman, Blei, Wang and Paisley, "Stochastic Variational Inference", *JMLR* 14, 2013:
+  subsampling and natural gradients.
+- Kingma and Ba, "Adam: A Method for Stochastic Optimization", *ICLR*, 2015.
+- Blei, Kucukelbir and McAuliffe (2017), Section 4, for the move from CAVI to
+  gradient-based VI.
+- Murphy, *Probabilistic Machine Learning: Advanced Topics*, Chapter 10, Sections
+  10.2–10.3 (gradient-based VI and ADVI).
+
+## Troubleshooting
+
+::: {.callout-warning title="Troubleshooting"}
+**ELBO trace goes down.** Adam is written for descent (minus sign), the learning
+rate is too large for the problem scale (try 0.01), or `log_joint` is being
+evaluated on constrained parameters without the Jacobian term.
+
+**`nan` after a few hundred steps.** `log_scale` ran off to large values and
+`exp(log_scale)` overflowed, usually because the log joint is flat in some direction
+(an unidentified parameter) so the entropy term pushes the scale to infinity. Add a
+prior or clip `log_scale` in the family.
+
+**Fit is centred correctly but scales are much smaller than Laplace.** Expected for
+strongly correlated posteriors under mean-field; see Challenge 1. If scales are
+smaller by more than a factor of three on a nearly spherical posterior, check the
+entropy formula ($\log(2\pi e)$, not $\log(2\pi)$).
+
+**Softplus inverse returns `-inf` or `nan` for small inputs.** Use `jnp.log(-jnp.expm1(-y))`
+rather than `jnp.log(1 - jnp.exp(-y))`.
+
+**`Chain.log_det_jacobian` wrong for two or more bijectors.** Each bijector's
+log-determinant must be evaluated at *its* input, i.e. after applying the preceding
+bijectors.
+
+**SVI is slow.** Sampling indices without replacement via `jax.random.choice`
+permutes all $N$ rows per step. Use `randint` (with replacement) or a pre-shuffled
+epoch scheme.
+
+**SVI converges to the wrong place.** The $N/B$ factor is missing, so the prior
+dominates. Check that the final `loc` matches the full-data Laplace mean.
+
+**You read one bad ELBO value as divergence.** Single values are noisy by several
+nats. Look at a running mean over a hundred steps.
+
+**You expected the fitted scales to be the posterior standard deviations.** They are
+the standard deviations of the best *independent* Gaussian, which are the conditional
+standard deviations of a correlated posterior and therefore smaller. Module 11
+quantifies the difference against HMC.
+:::

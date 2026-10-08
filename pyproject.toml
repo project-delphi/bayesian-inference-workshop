@@ -1,0 +1,32 @@
+[project]
+name = "bayesian-inference-from-scratch"
+version = "0.1.0"
+description = "Bayesian Inference from Scratch: a five-day hands-on workshop in JAX"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "jax==0.11.2",
+  "jaxlib==0.11.2",
+  "numpy==2.5.3",
+  "scipy==1.18.1",
+  "matplotlib==3.11.2",
+  "pytest==9.1.1",
+]
+
+# The site is built with the Quarto CLI (https://quarto.org), installed separately;
+# it is not a Python package. Tested with Quarto 1.6.40.
+
+[project.optional-dependencies]
+notebooks = ["jupyter", "jupytext"]
+gpu = ["jax[cuda12]==0.11.2"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["workshop", "solutions"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]

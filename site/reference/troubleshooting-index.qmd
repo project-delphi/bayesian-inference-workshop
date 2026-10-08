@@ -1,0 +1,104 @@
+---
+title: "Troubleshooting index"
+---
+
+Symptoms, grouped by what you see, with the module whose Troubleshooting section treats
+them. 
+
+## NaN or Inf
+
+| Symptom | Likely cause | Module |
+|---|---|---|
+| `logsumexp` returns `nan` on all-`-inf` input | subtracting an infinite max | [1](../day0/m01-jax-warmup.qmd) |
+| Gaussian `log_partition` is `nan` | $\Lambda = -2\eta_2$ not positive definite | [3](../day1/m03-expfam-core.qmd) |
+| Grid posterior is all `nan` or zero | exponentiated log posteriors before subtracting the maximum | [2b](../day0/m02b-foundations.qmd) |
+| Newton inversion returns `nan` | undamped step left the natural-parameter domain | [4](../day1/m04-kl-bregman.qmd) |
+| `nan` in the CAVI ELBO | $r\log r$ at $r = 0$ not guarded | [6](../day2/m06-cavi.qmd) |
+| `log_joint` returns `-inf` | `log(sigmoid(.))` underflow; use `log_sigmoid` | [7](../day2/m07-gradient-estimators.qmd) |
+| `nan` in VI after a few hundred steps | `log_scale` diverges on an unidentified direction and `exp` overflows | [8](../day2/m08-bbvi-engine.qmd) |
+| Softplus inverse gives `-inf` or `nan` for small inputs | `log(1 - exp(-y))` instead of `log(-expm1(-y))` | [8](../day2/m08-bbvi-engine.qmd) |
+| Chain contains `nan` coordinates | non-finite energy error compared with a uniform (`nan < u` is False) and accepted | [9](../day3/m09-hmc-core.qmd) |
+| Step size collapses to zero during warm-up | `nan` acceptance probabilities feed dual averaging as 0 | [10](../day3/m10-adaptation.qmd) |
+| `nan` gradients at small $\tau$ in the centred hierarchical model | division by $\tau = e^{\log\tau}$ underflows; funnel geometry | [11](../day3/m11-diagnostics.qmd) |
+| `Bernoulli.log_prob` returns `nan` or positive values | probabilities passed where logits expected, or `log(sigmoid(l))` underflow | [14](../day4/m14-vae.qmd) |
+| `nan` in the flow ELBO trace within the first hundred steps | unbounded coupling log-scale; `tanh` bound applied to the shift instead | [15a](../day5/m15a-flows.qmd) |
+| Target returns `nan` for very negative $\log\tau$ | flow proposes points where $\tau = e^{\log\tau}$ underflows; scale too large early | [15a](../day5/m15a-flows.qmd) |
+| `nan` DSM loss at the first step | $t$ sampled down to 0 where $\sigma_t = 0$; use $t \in [10^{-3}, 1]$ | [15b](../day5/m15b-diffusion.qmd) |
+
+## Wrong by a small amount
+
+| Symptom | Likely cause | Module |
+|---|---|---|
+| Grid moments differ from quadrature | grid too coarse or too narrow, posterior mass off the edge | [2b](../day0/m02b-foundations.qmd) |
+| Posterior for the precision biased low | missing $+\log\lambda$ Jacobian in the unconstrained log joint | [2b](../day0/m02b-foundations.qmd) |
+| Metropolis acceptance near 0 or near 1 | step size far too large or far too small | [2b](../day0/m02b-foundations.qmd) |
+| Normaliser differs from SciPy at the 7th digit | `jax.scipy.special.betaln` precision | [5](../day1/m05-conjugacy.qmd) |
+| AR(1) test fails everywhere by a little | noise drawn inside the scan body | [1](../day0/m01-jax-warmup.qmd) |
+| `kl_gamma` wrong in the 4th decimal | shape/rate vs shape/scale, or $\log\Gamma$ for $\psi$ | [4](../day1/m04-kl-bregman.qmd) |
+| Normal–Gamma $\lambda$ posterior off | $\kappa_n$ in the wrong place in $\beta_n$ | [5](../day1/m05-conjugacy.qmd) |
+| ELBO decreases between CAVI sweeps | missing $d\,s_k^2$ term, `alpha0 + N_k - 1`, or stale factors in the ELBO | [6](../day2/m06-cavi.qmd) |
+| ELBO-versus-$K$ argmax lands at 5 or 6 | random seeding per $K$; use the shared deterministic seeding | [6](../day2/m06-cavi.qmd) |
+| Score-function gradient is biased | missing `stop_gradient` on the samples | [7](../day2/m07-gradient-estimators.qmd) |
+| Control variate increases variance | one shared scalar baseline instead of per-coordinate | [7](../day2/m07-gradient-estimators.qmd) |
+| ELBO trace goes down in `fit` | Adam written for descent, learning rate too large, or Jacobian term missing | [8](../day2/m08-bbvi-engine.qmd) |
+| SVI converges to the prior | missing $N/B$ scaling of the minibatch likelihood | [8](../day2/m08-bbvi-engine.qmd) |
+| `Chain.log_det_jacobian` wrong | each bijector's log-det not evaluated at its own input | [8](../day2/m08-bbvi-engine.qmd) |
+| Energy error drops by 2x, not 4x, when halving the step | integration time not held fixed (constant `n_steps`) | [9](../day3/m09-hmc-core.qmd) |
+| Post-warm-up acceptance well above target | averaged log step size biases to smaller steps; terminal window too short | [10](../day3/m10-adaptation.qmd) |
+| ESS exactly $N$ for every coordinate | truncated at lag 0; pair sums vs single lags, or unnormalised autocovariance | [11](../day3/m11-diagnostics.qmd) |
+| ESS far above $N$ or negative | Geyer loop did not stop at the first non-positive pair | [11](../day3/m11-diagnostics.qmd) |
+| Two latent sites get the same draw | `seed` reused a key; counter not incremented per site | [12](../day4/m12-effect-handlers.qmd) |
+| `replay` reproduces the observed site's old value | observed sites overwritten; check `is_observed` | [12](../day4/m12-effect-handlers.qmd) |
+| Unconstrained density off by exactly $z_{\log\tau}$ | Jacobian sum missing or double counted | [13](../day4/m13-ppl-inference.qmd) |
+| SVI posterior for $\sigma$ has mean near 2 and SD above 1 | not converged; the enzyme ELBO has a long plateau, use 6 000+ steps | [13](../day4/m13-ppl-inference.qmd) |
+| `predictive` returns the data itself | observed site's value read instead of sampling its distribution | [13](../day4/m13-ppl-inference.qmd) |
+| `predictive` returns one value per draw for a vector observation | sampled at the distribution's batch shape; broadcast its parameters to the observed value's shape first | [13](../day4/m13-ppl-inference.qmd) |
+| VAE ELBO flat near the baseline | Adam written for descent, or learning rate too small | [14](../day4/m14-vae.qmd) |
+| KL term goes to zero and reconstructions are the mean cell | posterior collapse; warm up the KL weight | [14](../day4/m14-vae.qmd) |
+| Reconstruction accuracy near 0.6 | decoder evaluated at a prior draw, not the guide's $z$ | [14](../day4/m14-vae.qmd) |
+| Flow log-determinant disagrees with `slogdet` by a sign | inverse must return $-\sum(1-m)\odot s$; forward/inverse conventions mixed | [15a](../day5/m15a-flows.qmd) |
+| Coupling inverse fails while log-det passes | conditioner fed `mask * z` instead of `mask * x` in the inverse | [15a](../day5/m15a-flows.qmd) |
+| Half the coordinates never transformed by the flow | masks not alternating with layer index, or inverse not reversing the layer order | [15a](../day5/m15a-flows.qmd) |
+| Flow's $\log\tau$ marginal collapses near the top of the funnel | mode-seeking KL with too few samples per step; stuck at the mean-field stationary point | [15a](../day5/m15a-flows.qmd) |
+| Intervention on $A$ has no effect on $T$ and $C$ | descendants computed from the local expression, not the value `deterministic` returned | [15c](../day5/m15c-scm.qmd) |
+| `do` on a noise site still scored by `log_density` | message type left as `"sample"`; convert to `"deterministic"` with `fn = None` | [15c](../day5/m15c-scm.qmd) |
+| Flat posterior after `condition` on $A$ or $T$ | deterministic nodes have no density; observe the implied noise instead | [15c](../day5/m15c-scm.qmd) |
+| Twin worlds disagree without any intervention | noise sampled twice; sample once and share, duplicate only the `_cf` nodes | [15c](../day5/m15c-scm.qmd) |
+| `unconstrain` reports four latent sites for the abduction model | implied-noise sites written without `obs=` | [15c](../day5/m15c-scm.qmd) |
+| Diffusion samples collapse toward the mean | score under-trained at small $t$; output not divided by $\sigma_t$, or too few reverse steps | [15b](../day5/m15b-diffusion.qmd) |
+| Reverse-SDE samples explode | wrong sign in the reverse drift | [15b](../day5/m15b-diffusion.qmd) |
+| ODE likelihood biased with the exact score | missing $\frac12$ on the score term of the probability-flow drift, or prior evaluated at $x_0$ | [15b](../day5/m15b-diffusion.qmd) |
+| Hutchinson log-likelihood varies by nats per point | expected noise; fix $\varepsilon$ per point along the trajectory and average over points | [15b](../day5/m15b-diffusion.qmd) |
+| Mode proportions wrong while means are right | discretisation bias from too few Euler steps or under-fitting at intermediate $t$ | [15b](../day5/m15b-diffusion.qmd) |
+
+## Shape and tracing errors
+
+| Symptom | Likely cause | Module |
+|---|---|---|
+| `ConcretizationTypeError` | Python control flow on a traced value, or a non-static loop count | [1](../day0/m01-jax-warmup.qmd) |
+| `jnp.nonzero` shape error | missing `size=` | [2](../day0/m02-diagnostic.qmd) |
+| Categorical shape mismatch | forgot to drop the last one-hot entry | [3](../day1/m03-expfam-core.qmd) |
+| Pytree structure mismatch | list vs tuple containers | [1](../day0/m01-jax-warmup.qmd) |
+| `cumulative_logsumexp` is NaN everywhere after a leading $-\infty$ | running maximum still $-\infty$, so $m - m_{\text{new}}$ is NaN; rescale by a finite reference | [1](../day0/m01-jax-warmup.qmd) |
+| `lax.scan` dtype mismatch at a window end | `jnp.where` branches with Python floats vs arrays in named-tuple states | [10](../day3/m10-adaptation.qmd) |
+| Schedule window ends off by one | `window_end[i]` marks the last iteration of a window | [10](../day3/m10-adaptation.qmd) |
+| Every later test fails with strange values after one failure | stale handler left on the stack; `__exit__` must pop unconditionally | [12](../day4/m12-effect-handlers.qmd) |
+| Tracer leak from the PPL | traced values stored in a Python global | [12](../day4/m12-effect-handlers.qmd) |
+| Duplicate-name error on a loop model | same site name each iteration | [12](../day4/m12-effect-handlers.qmd) |
+| `vmap` over a dict of samples fails | entries have different leading dimensions; flatten chains first | [13](../day4/m13-ppl-inference.qmd) |
+
+## Sampler diagnostics
+
+| Symptom | Likely cause | Module |
+|---|---|---|
+| High $\hat R$ while every chain looks stationary | multimodality; separated flat bands in trace plots | [11](../day3/m11-diagnostics.qmd) |
+| Centred hierarchical model shows no divergences | threshold applied to the acceptance probability, or missing $+\log\tau$ Jacobian | [11](../day3/m11-diagnostics.qmd) |
+| Reversibility fails, volume preservation passes | asymmetric half-kicks in leapfrog | [9](../day3/m09-hmc-core.qmd) |
+| Divergences or under-dispersed VI on a soft-observation SCM | thin rotated ridge from a `Normal(mean, 1e-2)` observation; use implied-noise observation | [15c](../day5/m15c-scm.qmd) |
+
+## Monte Carlo tests
+
+A four-standard-error test fails for a correct implementation about once in ten
+thousand runs. Keys are fixed, so a failure is deterministic and indicates a bias.
+Compare the analytic value against the printed sample estimate; the sign of the gap
+usually identifies the error.

@@ -1,0 +1,1 @@
+{{< include ../../instructor/day-schedules.md >}}

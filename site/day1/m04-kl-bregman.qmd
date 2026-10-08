@@ -1,0 +1,571 @@
+---
+title: "Module 4 — KL divergence and Bregman geometry"
+---
+
+## Overview
+
+**Why this module exists.** Every approximate inference method in this workshop replaces
+a posterior you cannot compute with a distribution you can. To do that honestly you
+need a number that says how far the approximation is from the truth, and you need to be
+able to compute that number, or at least its gradient, without ever touching the
+intractable posterior. The Kullback–Leibler divergence is that number. This module
+builds it from first principles, shows that for exponential families it collapses to a
+formula involving only the log-partition function $A$ of Module 3, and then uses the
+same convex geometry to invert the mean map and to define the natural gradient. Day 2
+will minimise KL; this module is where you learn what you are minimising.
+
+**What you'll build:** in `workshop/m04_kl_bregman.py`, a single closed-form KL
+divergence that works for every family in Module 3, a Monte Carlo KL to validate it,
+hand-written textbook KL formulas that must agree with it, a Newton inversion from mean
+parameters back to natural parameters, the convex conjugate $A^*$, and the natural
+gradient. These are the tools CAVI (Module 6), stochastic variational inference (Module
+8) and the conjugate updates of Module 5 are built from.
+
+**Estimated time:** 2.5 hours (about 1 hour reading, 1.5 hours building).
+
+**Prerequisites:** [Module 3](m03-expfam-core.qmd),
+[Module 2b](../day0/m02b-foundations.qmd) for what a posterior is and why we
+approximate it. Terms are defined in the [glossary](../reference/glossary.qmd).
+
+## Learning objectives
+
+By the end of this module you can:
+
+1. State what $\KL(p\,\|\,q)$ measures in two different readings (wasted code length
+   and expected log-likelihood ratio), prove it is non-negative, and explain with a
+   numerical example why it is not symmetric.
+2. Derive $\KL(p_{\eta_p}\,\|\,p_{\eta_q})$ as the Bregman divergence of $A$ and compute
+   it for any family from `log_partition` and `mean_params` alone.
+3. Invert the mean map $\mu = \nabla A(\eta)$ numerically and explain why Newton's
+   method with the Fisher matrix is the right algorithm and why it needs damping.
+4. Read the convex conjugate $A^*(\mu) = \eta^\top\mu - A(\eta)$ off a picture of $A$
+   and its tangent line, identify $A^*$ as negative entropy, and verify
+   $\nabla A^* = \eta$ by autodiff.
+5. (Optional Step 4.) Explain why "steepest descent" depends on how you measure
+   distance, compute a natural gradient, and show it equals the ordinary gradient in
+   mean coordinates.
+
+## Background
+
+### The problem in plain terms
+
+In [Module 2b](../day0/m02b-foundations.qmd) you saw that the posterior is defined but
+usually not computable, and that the two ways out are to sample from it (Day 3) or to
+pick the closest member of a family of tractable distributions (Day 2). "Closest" needs
+a definition. It must be computable from things we have (the unnormalised posterior and
+the candidate $q$), it must be zero only when the two distributions agree, and its
+gradient with respect to the parameters of $q$ must be something we can estimate. The
+divergence that satisfies all three is the KL divergence, and the reason it is
+computable for the families of Module 3 is that it is a function of $A$ alone.
+
+A second, more practical problem appears in the same breath. Module 3 gave you the map
+from natural parameters to mean parameters, $\mu = \nabla A(\eta)$. Algorithms often hand
+you the other direction: an update produces expected sufficient statistics (a mean and a
+second moment, say) and you need the natural parameters that have them. That inverse is
+not available in closed form for most families, so you build a solver for it here.
+
+### Definitions
+
+**Divergence.** A function $D(p, q) \ge 0$ of two distributions with $D(p, q) = 0$ if and
+only if $p = q$. It need not be symmetric and need not satisfy the triangle inequality;
+a divergence is not a distance. "Divergence" is the right word precisely because these
+properties are missing.
+
+**Kullback–Leibler divergence.** For densities $p$ and $q$ on the same space,
+
+$$
+\KL(p\,\|\,q) = \E_{x\sim p}\big[\log p(x) - \log q(x)\big] = \int p(x)\log\frac{p(x)}{q(x)}\dd x.
+$$
+
+Read it as: *average, under $p$, of the log-likelihood ratio of $p$ to $q$*. The
+expectation is taken under the first argument. Two readings make it concrete.
+
+- **Coding.** If you build an optimal compressor for data from $q$ but the data actually
+  come from $p$, you pay on average $\KL(p\,\|\,q)$ extra nats per symbol compared with a
+  compressor built for $p$. KL is wasted code length. A nat is the unit when logs are
+  natural; divide by $\log 2$ for bits.
+- **Testing.** If you observe $n$ samples and want to decide whether they came from $p$
+  or $q$, the log-likelihood ratio $\sum_i \log\frac{p(x_i)}{q(x_i)}$ grows like
+  $n\,\KL(p\,\|\,q)$ when $p$ is true. KL is the rate at which evidence accumulates. To
+  reach a false-negative rate $\alpha$ you need roughly $n \approx \log(1/\alpha)/\KL(p\,\|\,q)$
+  samples (this is the Chernoff–Stein lemma).
+
+**Entropy.** $H(p) = -\E_p[\log p(x)]$, the average code length of an optimal compressor
+for $p$, and the quantity whose negative turns out to be the convex conjugate of $A$.
+
+**Bregman divergence.** For a convex function $F$, $D_F(a, b) = F(a) - F(b) - (a-b)^\top\nabla F(b)$:
+the value of $F$ at $a$ minus the value of the tangent plane at $b$, evaluated at $a$.
+Convexity says the function lies above every tangent plane, so $D_F \ge 0$.
+
+### KL is non-negative, in three lines
+
+Write $\KL(p\,\|\,q) = -\E_p\big[\log\frac{q(x)}{p(x)}\big]$. Since $\log$ is concave,
+Jensen's inequality (question 1 of the diagnostic) gives
+$\E_p[\log u] \le \log\E_p[u]$ for any positive random variable $u$. With
+$u = q(x)/p(x)$,
+
+$$
+\E_p\Big[\log\frac{q}{p}\Big] \le \log\E_p\Big[\frac{q}{p}\Big] = \log\int p(x)\frac{q(x)}{p(x)}\dd x = \log 1 = 0,
+$$
+
+so $\KL(p\,\|\,q) \ge 0$. Equality in Jensen holds only when $u$ is constant, that is
+when $q = p$ almost everywhere.
+
+### Asymmetry, with numbers
+
+Take $p = \mathcal N(0, 1)$ and $q = \mathcal N(0, 3^2)$.
+
+**Predict before reading on.** One of $\KL(p\,\|\,q)$ and $\KL(q\,\|\,p)$ is about four
+times the other. Which, and why? Decide before opening the answer.
+
+::: {.callout-note collapse="true" title="Answer"}
+The univariate formula (Module 2, Step 4) gives
+
+$$
+\KL(\mathcal N(0,1)\,\|\,\mathcal N(0,9)) = 0.654, \qquad
+\KL(\mathcal N(0,9)\,\|\,\mathcal N(0,1)) = 2.901.
+$$
+
+The expensive direction is the one where the samples come from the *wide*
+distribution and are scored by the narrow one. The reasoning is in the next paragraph;
+the figure below shows the two integrands.
+:::
+
+![The integrand of each KL direction. Left: samples from the narrow $p$ scored by the wide $q$; the penalty is spread thinly and sums to $0.654$. Right: samples from the wide distribution scored by the narrow one; the tails at $|x| > 2$ are punished quadratically and the total is $2.901$.](../figures/m04_kl_asymmetry.png)
+
+Why so different? In the first case the samples come from the narrow distribution and
+are scored by the wide one: every sample lands where $q$ has reasonable density, so the
+penalty is just the cost of spreading probability mass over a region the data never
+visit. In the second case samples come from the wide distribution and are scored by the
+narrow one: samples at $|x| = 3$ or more are three or more standard deviations out
+under $q$, and $\log q$ punishes them quadratically. The direction in which samples come
+from the *broader* distribution is the expensive one.
+
+This asymmetry is the single most consequential fact about variational inference.
+Mean-field VI minimises $\KL(q\,\|\,p)$ with the approximation $q$ in the first slot, so
+$q$ is penalised for putting mass where $p$ has none, but barely penalised for missing
+mass that $p$ has. The result is approximations that are too narrow. You will measure
+this directly in Module 11.
+
+The cleanest picture of the two behaviours is a single Gaussian fitted to a two-mode
+target under each direction:
+
+![A Gaussian $q$ fitted to a bimodal $p$ by minimising each KL direction. $\KL(q\,\|\,p)$ sits on one mode and ignores the other (mode-seeking, the variational choice). $\KL(p\,\|\,q)$ matches the moments and covers both modes with a wide Gaussian that puts most of its mass where $p$ has none (mass-covering).](../figures/m04_kl_bimodal.png){width=75%}
+
+::: {.callout-note title="Interactive"}
+The black curve is the bimodal target $p$; the orange curve is a Gaussian $q$ you control by dragging (left and right moves the mean, up and down changes the width) or with the sliders. The two readouts are $\KL(q\,\|\,p)$, which variational inference minimises, and $\KL(p\,\|\,q)$, which moment matching and maximum likelihood minimise. The lower panels draw the two integrands: $q\log(q/p)$ is large wherever $q$ puts mass that $p$ lacks, so the $\KL(q\,\|\,p)$ optimum sits inside one mode and is narrow; $p\log(p/q)$ is large wherever $p$ has mass that $q$ lacks, so the $\KL(p\,\|\,q)$ optimum straddles both modes and is wide. The two buttons animate $q$ to each optimum. Compare the widths.
+:::
+
+```{=html}
+<div class="bi-widget" id="kl-direction" data-mu="0" data-sigma="1" style="width:100%;max-width:860px;margin:0 auto 1.5rem auto;"></div>
+<script type="module">
+import { mount } from "../widgets/kl_direction.js";
+mount(document.getElementById("kl-direction"));
+</script>
+```
+
+Fitting the two-mode target is not a curiosity: a mixture posterior (Module 6), a
+funnel (Module 11) and a multimodal likelihood all present exactly this choice, and
+mean-field VI makes it the same way every time.
+
+### The Bregman identity, line by line
+
+Take two members $p = p(\cdot\mid\eta_p)$ and $q = p(\cdot\mid\eta_q)$ of one exponential
+family with log-partition $A$. Substitute the exponential-family form into the
+definition:
+
+$$
+\KL(p\,\|\,q) = \E_p\Big[\big(\log h(x) + \eta_p^\top t(x) - A(\eta_p)\big) - \big(\log h(x) + \eta_q^\top t(x) - A(\eta_q)\big)\Big].
+$$
+
+The base measure $\log h(x)$ cancels because it does not depend on $\eta$. What remains
+is linear in $t(x)$ plus constants:
+
+$$
+\KL(p\,\|\,q) = (\eta_p - \eta_q)^\top\E_p[t(x)] - A(\eta_p) + A(\eta_q).
+$$
+
+Now use Module 3's identity $\E_p[t(x)] = \nabla A(\eta_p)$ and rearrange:
+
+$$
+\KL(p\,\|\,q) = A(\eta_q) - A(\eta_p) - (\eta_q - \eta_p)^\top\nabla A(\eta_p) = D_A(\eta_q, \eta_p).
+$$
+
+That is the Bregman divergence of $A$: the height of $A$ at $\eta_q$ above the tangent
+plane drawn at $\eta_p$. Convexity of $A$ gives $\KL \ge 0$ a second time, now by a
+picture rather than by Jensen.
+
+![Left: the Bernoulli log-partition $A(\eta) = \log(1 + e^\eta)$, its tangent line at $\eta_p$ (conversion rate $6.2\%$), and the vertical gap at $\eta_q$ ($7.9\%$). The gap is $\KL(p\,\|\,q) = 0.00213$ nats; the inset zooms in because at these rates the curve is nearly straight. Right: the same tangent line extended to $\eta = 0$. Its slope is the mean parameter $\mu_p$ and its intercept is $-A^*(\mu_p)$, the entropy of $p$. The conjugate is a picture of a tangent line.](../figures/m04_bregman_tangent.png)
+
+::: {.callout-note title="Interactive"}
+The surface is the log-partition function $A(\eta) = \log(1 + e^{\eta_1} + e^{\eta_2})$ of a three-category Categorical. The blue plane is tangent to it at $\eta_p$; the red segment at $\eta_q$ runs from the plane up to the surface and its length is $D_A(\eta_q, \eta_p)$. The readout computes the same number as $\sum_k p_k\log(p_k/q_k)$; the two agree for every position of the sliders, and the segment never points downward because a convex surface lies above all its tangent planes. Press Play to let $\eta_q$ wander and watch the gap grow as $q$ moves away from $p$. The bars show the probability vectors $p$ and $q$ that the two natural-parameter points represent.
+:::
+
+```{=html}
+<div class="bi-widget" id="bregman-surface" data-p1="-1" data-p2="0.5" data-q1="1.5" data-q2="-1" style="width:100%;max-width:860px;margin:0 auto 1.5rem auto;"></div>
+<script type="module">
+import { mount } from "../widgets/bregman.js";
+mount(document.getElementById("bregman-surface"));
+</script>
+```
+
+The picture is the same in any dimension: a convex surface, a tangent plane, a
+vertical gap. The interactive surface above shows it for a three-category Categorical,
+where $\eta$ has two coordinates and the tangent plane is a real plane.
+
+The practical consequence is that one function of `log_partition` and `mean_params`
+yields every closed-form KL in the family table. The textbook formulas for the
+Bernoulli, Categorical, Gamma and Dirichlet, which you will write by hand in Step 2, are
+special cases, and the tests confirm they agree to ten digits.
+
+### A worked example with numbers
+
+The two landing-page variants of `ab_test_conversions` have true rates $p_A = 0.062$ and
+$p_B = 0.079$. As Bernoulli natural parameters,
+$\eta_A = \log\frac{0.062}{0.938} = -2.717$ and $\eta_B = \log\frac{0.079}{0.921} = -2.456$.
+From Module 3, $A(\eta_A) = \log(1 + e^{\eta_A}) = 0.0640$,
+$A(\eta_B) = 0.0823$, and $\nabla A(\eta_A) = p_A = 0.062$. The Bregman identity gives
+
+$$
+\KL(A\,\|\,B) = 0.0823 - 0.0640 - (-2.456 + 2.717)\times 0.062 = 0.00213 \text{ nats}.
+$$
+
+The textbook formula $p\log\frac{p}{q} + (1-p)\log\frac{1-p}{1-q}$ gives the same
+$0.00213$, and the other direction is $\KL(B\,\|\,A) = 0.00230$. Both are tiny: a single
+conversion event barely distinguishes a 6.2% rate from a 7.9% one. By the Chernoff–Stein
+reading, telling the two apart at a 5% error rate needs about
+$\log 20 / 0.00213 \approx 1400$ observations per arm. The experiment has about 400.
+Module 5 will compute the posterior probability that B is better and find it close to
+a coin flip; this calculation says in advance that it must.
+
+### Dual coordinates: the Gaussian as the running example
+
+A minimal exponential family has two natural coordinate systems. The Gaussian makes
+them concrete:
+
+| Coordinates | Univariate Gaussian | Role |
+|---|---|---|
+| natural $\eta$ | $(\mu/\sigma^2,\ -1/(2\sigma^2))$ | densities multiply by adding $\eta$ |
+| mean $\mu$ | $(\E[x], \E[x^2]) = (\mu, \sigma^2 + \mu^2)$ | expectations and moment matching |
+
+The map between them is $\mu(\eta) = \nabla A(\eta)$, and because $A$ is strictly convex
+on a minimal family its gradient is one-to-one: every valid mean parameter corresponds to
+exactly one natural parameter. For the Gaussian the inverse map is explicit
+($\sigma^2 = \E[x^2] - \E[x]^2$, then $\eta$ from $\mu, \sigma^2$). For the Gamma and
+Dirichlet it is not: inverting $(\psi(\alpha) - \log\beta, \alpha/\beta)$ for
+$(\alpha, \beta)$ has no closed form. Step 3 solves it numerically.
+
+### The convex conjugate and entropy
+
+Go back to the right panel of the tangent-line figure. A convex curve can be described
+two ways: by its height $A(\eta)$ at each point, or by the family of its tangent lines.
+A tangent line is fixed by its slope and its intercept. The slope at $\eta$ is
+$\mu = \nabla A(\eta)$, the mean parameter. The intercept, where the line crosses
+$\eta = 0$, is $A(\eta) - \eta\,\nabla A(\eta) = A(\eta) - \eta\mu$. So "slope $\mu$,
+intercept $A(\eta) - \eta\mu$" is a complete description of $A$ in mean coordinates. The
+**convex conjugate** is minus that intercept as a function of the slope:
+
+$$
+A^*(\mu) = \eta(\mu)^\top\mu - A(\eta(\mu)),
+$$
+
+where $\eta(\mu)$ is the natural parameter whose mean parameter is $\mu$. The usual
+definition, $A^*(\mu) = \sup_\eta\{\eta^\top\mu - A(\eta)\}$, says the same thing: for a
+fixed slope $\mu$, slide a line of that slope until it just touches the curve, and read
+off its intercept. Setting the gradient of the bracket to zero gives $\mu = \nabla A(\eta)$,
+so the touching point is exactly $\eta(\mu)$. Because the curve is strictly convex, the
+two descriptions determine each other: $\nabla A^* = (\nabla A)^{-1}$, and the Hessians
+are inverse matrices, $\nabla^2 A^*(\mu) = F(\eta)^{-1}$. (If you have met the Legendre
+transform in mechanics or thermodynamics, this is that construction; if not, the
+tangent line is all you need.)
+
+What is $A^*$? Compute the expected log density of a member with $\log h = 0$:
+
+$$
+\E_\eta[\log p(x\mid\eta)] = \eta^\top\E_\eta[t(x)] - A(\eta) = \eta^\top\mu - A(\eta) = A^*(\mu).
+$$
+
+The left side is $-H(p_\eta)$, the negative entropy. So the conjugate of the
+log-partition function is the negative entropy expressed in mean coordinates. This is
+why the entropy term of the ELBO in Module 6 is available in closed form for every
+family here: it is $-A^*$, which you can evaluate through $A$.
+
+### Newton's method, and why it needs damping
+
+To find $\eta$ with $\nabla A(\eta) = \mu$, minimise $f(\eta) = A(\eta) - \eta^\top\mu$.
+This is convex with gradient $\nabla A(\eta) - \mu$ and Hessian $F(\eta)$, so Newton's
+method (Module 1, Step 3) is
+
+$$
+\eta \leftarrow \eta - F(\eta)^{-1}\big(\nabla A(\eta) - \mu\big).
+$$
+
+Near the solution it converges quadratically: the number of correct digits roughly
+doubles per step. The problem is far from the solution. A Newton step is the minimiser
+of a quadratic model of $f$, and the model knows nothing about $\Omega$. For the Gamma,
+starting at $(\alpha, \beta) = (1, 1)$ and targeting $(3.5, 1.7)$, the first full step
+pushes $\eta_2 = -\beta$ through zero. Outside $\Omega$ the normaliser does not exist,
+$A$ returns `nan`, and every later iterate is `nan` too.
+
+![Newton on the Gamma family in the natural-parameter plane. The domain is $\eta_2 < 0$. The full first step from $(0, -1)$ (red, dashed) crosses the boundary and every later iterate is `nan`. The damped path (orange) shortens the first step, stays inside, and converges quadratically to $(2.5, -1.7)$.](../figures/m04_newton_damping.png){width=65%}
+
+The standard fix is a backtracking line search: try the full step, then half of it, then
+a quarter, down to $2^{-10}$, and take the largest one for which $f$ is finite and does
+not increase. Because $f$ is convex, some fraction of the Newton direction always
+decreases it, so the search always succeeds while the iterate is inside $\Omega$. If
+the step selection is done with `jnp.where` on a boolean mask rather than a Python `if`,
+the whole solver stays a pure JAX function, and `jax.grad` can differentiate through it
+with respect to $\mu$. The tests use exactly that to verify $\nabla A^* = \eta$.
+
+### Why this matters later
+
+- **Module 5.** The posterior update is addition in $\eta$; the posterior mean of $\mu$
+  is a convex combination in mean coordinates. Both coordinate systems appear.
+- **Module 6.** The ELBO for a conjugate model is a sum of KL terms between members of
+  the families built here, plus entropies, all closed form via $A$ and $A^*$.
+- **Module 8, Challenge; Module 6, Challenge.** The natural gradient of the ELBO
+  (optional Step 4 below), which turns stochastic variational inference on a conjugate
+  model into a running average of sufficient statistics.
+- **Module 10.** HMC's mass matrix is the Fisher metric of the posterior in disguise:
+  rescale coordinates so the posterior looks round.
+- **Module 11 and Track A.** The under-dispersion of mean-field VI, predicted here from
+  the asymmetry of KL, is measured against HMC and repaired with normalising flows.
+
+### Common misconceptions
+
+- **"KL is a distance."** It is asymmetric and violates the triangle inequality. The
+  two directions answer different questions and can differ by a large factor.
+- **"Minimising KL is the same whichever way round."** $\KL(q\,\|\,p)$ (variational
+  inference) is mode-seeking and under-dispersed; $\KL(p\,\|\,q)$ (moment matching,
+  expectation propagation, maximum likelihood) is mass-covering. Choosing the direction
+  chooses the failure mode.
+- **"Natural gradient is just preconditioning with any positive matrix."** It is
+  preconditioning with the one matrix that makes the step invariant to how you
+  parameterise the family. Change coordinates and the natural-gradient step changes
+  covariantly; an arbitrary preconditioner does not.
+- **"Newton always converges for convex problems."** Only with damping, and only from
+  inside the domain. Convexity guarantees a descent direction, not that the full step
+  stays feasible.
+
+## Steps
+
+Every step edits `workshop/m04_kl_bregman.py`. Import families from `.m03_expfam`.
+
+### Step 1 — KL as a Bregman divergence
+
+**What this computes.** The Bregman identity, generically: given any `ExpFam` and two
+natural parameters, the KL divergence from `log_partition` and `mean_params` alone. The
+Monte Carlo companion is the definition of KL applied literally: draw from $p$, average
+$\log p - \log q$. Agreement between the two is the first test, and it is the pattern
+of test you will use for every closed-form expectation in the workshop.
+
+Implement `kl(fam, eta_p, eta_q)` as
+`fam.log_partition(eta_q) - fam.log_partition(eta_p) - (eta_q - eta_p) @ fam.mean_params(eta_p)`.
+Implement `kl_monte_carlo(fam, eta_p, eta_q, key, n)` drawing `n` samples from $p$ and
+returning the mean and standard error of $\log p(x) - \log q(x)$.
+
+Sanity check: `kl(Bernoulli(), to_natural(0.062), to_natural(0.079))` should print
+`0.00213`, the number from the worked example.
+
+```bash
+pytest tests/m04 -k step1
+```
+
+You should see 4 passed: zero at equal arguments, positivity and asymmetry for Gamma,
+agreement with your own Monte Carlo estimate for Gamma, Dirichlet and Categorical, and
+agreement with `kl_gaussians` from Module 2 for a bivariate Gaussian.
+
+### Step 2 — Textbook closed forms
+
+**What this computes.** The same divergences, written in the parameters you would
+report. Deriving them by hand from the Bregman form is the exercise: substitute the
+family's $A$ and $\nabla A$ from the Module 3 table and simplify. The tests compare
+your hand formulas to the generic `kl` at `rtol=1e-10`, so any algebra slip shows.
+
+Implement `kl_bernoulli(p, q)`, `kl_categorical(p, q)`,
+`kl_gamma(alpha_p, beta_p, alpha_q, beta_q)` and `kl_dirichlet(alpha_p, alpha_q)` from
+their standard parameterisations. For the Gamma,
+
+$$
+\KL = (\alpha_p - \alpha_q)\psi(\alpha_p) - \log\Gamma(\alpha_p) + \log\Gamma(\alpha_q) + \alpha_q\log\tfrac{\beta_p}{\beta_q} + \alpha_p\tfrac{\beta_q - \beta_p}{\beta_p}.
+$$
+
+Sanity check: `kl_categorical(p, p)` is `0.0` for any `p`, and
+`kl_bernoulli(0.062, 0.079)` matches Step 1.
+
+```bash
+pytest tests/m04 -k step2
+```
+
+You should see 4 passed, each comparing your formula against `kl` on the family at
+`rtol=1e-10`.
+
+### Step 3 — Inverting the mean map and the conjugate
+
+**What this computes.** The map from mean parameters back to natural parameters, by
+damped Newton on the convex objective $A(\eta) - \eta^\top\mu$, and then the conjugate
+$A^*(\mu)$ and a Monte Carlo entropy to confirm $A^* = -H$. The differentiability test
+checks the duality $\nabla A^* = \eta$ by running `jax.grad` through your solver.
+
+Implement `natural_from_mean(fam, mu, eta0, n_iter=30)` as damped Newton: direction
+$d = -F(\eta)^{-1}(\nabla A(\eta) - \mu)$, candidate steps $\eta + 2^{-k}d$ for
+$k = 0, \dots, 10$ evaluated with `jax.vmap`, accept the first candidate with finite,
+non-increasing objective using `jnp.argmax` on a boolean mask and `jnp.where`. Run
+exactly `n_iter` iterations in `lax.fori_loop`.
+
+Implement `conjugate(fam, mu, eta0)` as `eta @ mu - fam.log_partition(eta)` with
+`eta = natural_from_mean(...)`, and `entropy_monte_carlo(fam, eta, key, n)`.
+
+Sanity check: for the Gamma with $(\alpha, \beta) = (3.5, 1.7)$, take
+`mu = fam.mean_params(eta)` and run `natural_from_mean(fam, mu, jnp.array([0., -1.]))`;
+it should return `[2.5, -1.7]`. Try it without damping first to see the `nan`.
+
+```bash
+pytest tests/m04 -k step3
+```
+
+You should see 3 passed: round-trips `mean_params(natural_from_mean(mu)) = mu` for
+Bernoulli, Categorical, Gamma and Dirichlet; $A^*(\mu) = -H$ for a Gamma against Monte
+Carlo; and `jax.grad(conjugate)(mu) = eta` for a Dirichlet, differentiating through the
+solver.
+
+### Step 4 — Fisher metric and natural gradient (optional)
+
+**What this computes.** The second-order expansion of KL and the natural gradient
+$F^{-1}\nabla_\eta f$. The first test checks the expansion is second-order accurate (the
+error must drop by about $1000\times$, at least $500\times$, when $\delta$ shrinks
+tenfold). The second checks the identity natural gradient equals $\nabla_\mu f$ by
+differentiating $f(\eta(\mu))$ through Step 3's solver. Nothing later in the required
+path depends on this step; it is used by the Challenges of Modules 6 and 8. If you are
+behind, read the derivation and come back.
+
+**Steepest descent depends on the ruler.** Gradient descent takes the step that
+decreases the loss most *per unit of parameter change*. But "unit of parameter change"
+depends on coordinates. Move the Bernoulli natural parameter by $\delta\eta = 1$: at
+$p = 0.5$ the distribution changes by $\KL = 0.120$ nats; at $p = 0.062$ the same step
+changes it by only $0.039$ nats. The same parameter step is three times smaller as a
+change in distribution. An optimiser that moves a fixed distance in $\eta$ is therefore
+moving three times too cautiously at the low rate, or three times too aggressively at
+the high one.
+
+The fix is to measure parameter steps by how much they change the distribution. The
+Bregman identity expanded to second order gives
+
+$$
+\KL(p_\eta\,\|\,p_{\eta+\delta}) = \tfrac12\delta^\top F(\eta)\delta + O(\|\delta\|^3),
+$$
+
+(check: at $p = 0.062$, $F = 0.0582$, and $\tfrac12 F \times 0.1^2 = 0.00029$ against the
+exact $0.00030$ for $\delta = 0.1$.) So the Fisher matrix is the local ruler on
+distribution space. Steepest descent with respect to this ruler replaces $\nabla_\eta f$
+with
+
+$$
+\tilde\nabla f = F(\eta)^{-1}\nabla_\eta f,
+$$
+
+the **natural gradient**. For an exponential family there is a further simplification.
+By the chain rule, $\nabla_\eta f = \frac{\partial\mu}{\partial\eta}^\top\nabla_\mu f = F\,\nabla_\mu f$,
+so
+
+$$
+F^{-1}\nabla_\eta f = \nabla_\mu f:
+$$
+
+the natural gradient in natural coordinates is the ordinary gradient in mean
+coordinates. The Challenges of Modules 6 and 8 use this: natural-gradient stochastic
+VI on a conjugate model is a weighted average of expected sufficient statistics, with
+no matrix inverse in sight.
+
+Implement `natural_gradient(fam, eta, grad_eta)` as `solve(F(eta), grad_eta)` and
+`kl_quadratic_approx(fam, eta, delta)` as $\frac12\delta^\top F\delta$.
+
+Sanity check: `kl_quadratic_approx(Bernoulli(), to_natural(0.062), jnp.array([0.1]))`
+should print `0.00029`, against `kl(...)` of `0.00030`.
+
+```bash
+pytest tests/m04 -k step4
+```
+
+You should see 2 passed: the quadratic approximation error shrinks by a factor of at
+least 500 when $\delta$ shrinks tenfold (third-order remainder), and for a Categorical
+the natural gradient equals $\nabla_\mu f$ computed by differentiating
+$f(\eta(\mu))$ through `natural_from_mean`.
+
+## Checkpoint
+
+::: {.callout-tip title="Checkpoint"}
+```bash
+pytest tests/m04
+```
+13 tests pass (11 if you skipped Step 4). You now have closed-form KL and entropy for
+every family, which is what makes the ELBO of Module 6 computable without sampling.
+Before moving on, be able to say in one sentence each: why KL is asymmetric, what the
+Bregman picture shows, and what a natural gradient corrects for.
+
+**Which expectation did you just compute?** KL itself: $\E_p[\log p - \log q]$, an
+expectation under the first argument. Step 1 computed it in closed form through $A$;
+`kl_monte_carlo` computed the same expectation by sampling. Entropy is
+$-\E_p[\log p]$, the special case $q$ uniform.
+:::
+
+## Challenge
+
+::: {.callout-note title="Challenge"}
+1. The reverse Bregman divergence $D_A(\eta_p, \eta_q)$ is $\KL(q\,\|\,p)$. Show that
+   in mean coordinates $\KL(p\,\|\,q) = D_{A^*}(\mu_p, \mu_q)$ and verify numerically
+   with your `conjugate`. Which of the two divergences does mean-field VI minimise,
+   and what does that imply about the fitted variances?
+2. Implement `natural_from_mean` for the over-complete Gaussian of Module 3 by
+   working in the minimal coordinates of its Challenge 1, and confirm it agrees with
+   the closed-form `to_natural(mu, Sigma)` recovered from the mean parameters
+   $(\mu, \Sigma + \mu\mu^\top)$.
+3. Run plain gradient descent and natural gradient descent on
+   $f(\eta) = \KL(p_{\eta^*}\,\|\,p_\eta)$ for a Bernoulli with $p^* = 0.062$, starting
+   from $p = 0.5$, with the same step size. Plot KL against iteration for both and explain
+   the difference using the ruler argument.
+:::
+
+## Going deeper
+
+- Wainwright and Jordan (2008), Sections 3.4–3.6 (mean parameters, the conjugate dual,
+  and the variational representation of $A$) and Appendix B.
+- MacKay, *Information Theory, Inference, and Learning Algorithms* (Cambridge University
+  Press, 2003), Chapter 2 for the coding reading of KL and Chapter 8 for the testing
+  reading. Short and concrete.
+- Amari, *Information Geometry and Its Applications* (Springer, 2016), Chapters 1–2
+  (dually flat structure of exponential families; Bregman divergences).
+- Hoffman, Blei, Wang and Paisley, "Stochastic Variational Inference", *JMLR* 14 (2013),
+  Section 2.3 for the natural gradient of the ELBO in a conjugate exponential family.
+- Nielsen and Nock, "Entropies and cross-entropies of exponential families" (2010), for
+  the entropy formula $H = A(\eta) - \eta^\top\nabla A(\eta) - \E[\log h]$.
+
+## Troubleshooting
+
+::: {.callout-warning title="Troubleshooting"}
+**`natural_from_mean` returns `nan` for the Gamma.** Undamped Newton stepped out of
+the domain. Confirm your candidate-step mask treats `nan` objective values as
+unacceptable (`jnp.isfinite`) and that you fall back to the current iterate when no
+candidate is acceptable.
+
+**Round-trip passes but `jax.grad(conjugate)` fails.** You used a Python `if` or a
+`while` loop in the line search, which breaks the trace, or `lax.while_loop`, which
+is not reverse-mode differentiable. Use `lax.fori_loop` with a fixed count and
+`jnp.where`.
+
+**`kl_gamma` disagrees in the fourth decimal.** Mixed up shape/rate with
+shape/scale, or used $\log\Gamma$ where $\psi$ (digamma) belongs.
+
+**The quadratic-approximation test fails the ratio check.** You compared absolute
+errors at one scale only; the test requires the error to drop by $\ge 500\times$ for
+a $10\times$ smaller $\delta$. A factor of $100$ indicates you are missing the
+$\frac12$ and the approximation is only first-order accurate.
+
+**Your `kl` has the right magnitude but the wrong sign of asymmetry.** You evaluated the
+tangent at $\eta_q$ instead of $\eta_p$. The expectation in KL is under the first
+argument, so the mean parameters come from `eta_p`.
+
+**You expected the Monte Carlo KL to be exactly non-negative.** The estimator is
+unbiased but noisy; for nearly equal distributions it can come out slightly negative.
+The closed form is always $\ge 0$; the sample estimate is $\ge 0$ only in expectation.
+:::

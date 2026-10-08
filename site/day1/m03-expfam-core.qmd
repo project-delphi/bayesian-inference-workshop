@@ -1,0 +1,492 @@
+---
+title: "Module 3 — Exponential-family core"
+---
+
+## Overview
+
+**Why this module exists.** Bayesian inference needs four operations on probability
+distributions, over and over: write down a density, compute an expectation under it,
+measure how different two distributions are, and update one with data. For an arbitrary
+density none of these has a closed form. Exponential families are the class of
+distributions for which all four follow from differentiating a single function. Almost
+every distribution you would reach for as a building block is one. The variational
+methods of Day 2 work because the approximating distribution is chosen from this class;
+the exact updates of Module 5 are a property of this class; the mass matrix of HMC on
+Day 3 is this class's Fisher information in disguise.
+
+**What you'll build:** an exponential-family library in `workshop/m03_expfam.py`. A
+base class `ExpFam` derives the log density, mean parameters, Fisher information and
+score from three family-specific functions (sufficient statistic, log base measure,
+log-partition) by autodiff. Five families: Bernoulli (given as the worked example),
+Categorical in minimal form, Gaussian with full covariance, Gamma and Dirichlet. Every
+derived quantity is tested against SciPy or against Monte Carlo moments.
+
+**Estimated time:** 3 hours (about 1 hour reading, 2 hours building).
+
+**Prerequisites:** [Module 1](../day0/m01-jax-warmup.qmd),
+[Module 2](../day0/m02-diagnostic.qmd), [Module 2b](../day0/m02b-foundations.qmd).
+Terms are defined in the [glossary](../reference/glossary.qmd) the first time they appear.
+
+## Learning objectives
+
+By the end of this module you can:
+
+1. Take any of the five families in textbook form, rewrite it as
+   $h(x)\exp(\eta^\top t(x) - A(\eta))$ by hand, and convert between natural and textbook
+   parameters in both directions.
+2. Derive and use $\nabla A(\eta) = \E_\eta[t(x)]$ and $\nabla^2 A(\eta) = \mathrm{Cov}_\eta[t(x)]$,
+   and explain in words why the second identity makes $A$ convex.
+3. Explain what Fisher information measures and compute, for the A/B test data, how
+   precisely 400 observations pin down a conversion rate.
+4. Explain why the Gaussian representation with $\mathrm{vec}(xx^\top)$ is over-complete
+   and what that does to the Fisher matrix.
+5. Verify an analytic identity against a Monte Carlo estimate with a principled tolerance.
+
+## Background
+
+### The problem in plain terms
+
+Suppose you have a distribution over some quantity and you want to do inference with it.
+Concretely you will need to:
+
+- evaluate its log density at a point (to score data, to compute acceptance ratios);
+- compute expectations under it (a posterior mean is an expectation; so is the ELBO);
+- compute the KL divergence between two members of the same family (the objective of
+  variational inference);
+- multiply it by a likelihood and renormalise (Bayes' rule).
+
+For a density written in the usual textbook way, each of these is a separate derivation,
+and most have no closed form. The observation behind this module is that if the log
+density is *linear in some fixed functions of the data*, then every one of these
+operations reduces to differentiating or adding one function. That linearity is the
+defining property of an exponential family.
+
+### Definitions
+
+An **exponential family** on a space $\mathcal X$ is a set of densities indexed by a
+vector $\eta \in \Omega \subseteq \R^m$ of the form
+
+$$
+p(x \mid \eta) = h(x)\exp\big(\eta^\top t(x) - A(\eta)\big).
+$$
+
+Each symbol has a job.
+
+| Symbol | Name | What it is |
+|---|---|---|
+| $t(x) \in \R^m$ | sufficient statistic | the functions of the data the density is linear in |
+| $\eta \in \R^m$ | natural parameter | the coefficients of that linear function |
+| $h(x)$ | base measure | everything in the density that does not involve $\eta$ |
+| $A(\eta)$ | log-partition function | the log of the normalising constant, as a function of $\eta$ |
+| $\Omega$ | natural parameter space | the set of $\eta$ for which the density can be normalised |
+
+"Sufficient" has a precise meaning: the likelihood of $n$ observations is
+
+$$
+\prod_{i=1}^n p(x_i \mid \eta) = \Big(\prod_i h(x_i)\Big)\exp\Big(\eta^\top \sum_{i=1}^n t(x_i) - nA(\eta)\Big),
+$$
+
+so as a function of $\eta$ it depends on the data only through the sum $\sum_i t(x_i)$.
+Everything else about the data is irrelevant to the parameter. For a Gaussian with
+unknown mean and variance, $t(x) = (x, x^2)$, and the sums of $x$ and $x^2$ are all you
+need to keep. This is why streaming updates work in Module 5.
+
+The **base measure** $h(x)$ is the part of the density with no parameter in it. It also
+fixes what "integrate" means: counting over outcomes for discrete families, the usual
+integral for continuous ones, the integral over the simplex for the Dirichlet. For all
+five families in this module $\log h(x) = 0$, so you can mostly ignore it; it matters
+in Module 5 for the posterior predictive.
+
+The **log-partition function** is forced by normalisation. Since the density must
+integrate to one,
+
+$$
+\int_{\mathcal X} h(x)\exp\big(\eta^\top t(x) - A(\eta)\big)\dd x = 1
+\quad\Longrightarrow\quad
+A(\eta) = \log\int_{\mathcal X} h(x)\exp\big(\eta^\top t(x)\big)\dd x.
+$$
+
+The name comes from statistical physics, where the same integral is the partition
+function. $\Omega$ is the set of $\eta$ where this integral is finite; it is always a
+convex set.
+
+### From a textbook density to the exponential-family form
+
+Take the univariate Gaussian and expand its log density:
+
+$$
+\log\mathcal N(x \mid \mu, \sigma^2)
+= -\frac{(x - \mu)^2}{2\sigma^2} - \tfrac12\log(2\pi\sigma^2)
+= \underbrace{\frac{\mu}{\sigma^2}}_{\eta_1}\,x + \underbrace{\Big(-\frac{1}{2\sigma^2}\Big)}_{\eta_2}\,x^2
+- \underbrace{\Big(\frac{\mu^2}{2\sigma^2} + \tfrac12\log(2\pi\sigma^2)\Big)}_{A}.
+$$
+
+The log density is linear in $(x, x^2)$. Read off $t(x) = (x, x^2)$,
+$\eta = (\mu/\sigma^2, -1/(2\sigma^2))$, $h(x) = 1$. Then express the leftover constant
+in terms of $\eta$: from $\sigma^2 = -1/(2\eta_2)$ and $\mu = -\eta_1/(2\eta_2)$,
+
+$$
+A(\eta) = -\frac{\eta_1^2}{4\eta_2} + \tfrac12\log\Big(-\frac{\pi}{\eta_2}\Big).
+$$
+
+Two things to notice. First, the natural parameters are not the parameters you would
+report: $\eta_2$ is a negative precision. Second, $\Omega = \{\eta_2 < 0\}$: the
+constraint $\sigma^2 > 0$ became a constraint on $\eta$. The same expansion works for
+every family in the table below, and doing it by hand once for each is the fastest way
+to make the representation feel natural.
+
+### Why $A$ generates everything
+
+Start from the normalisation identity $A(\eta) = \log\int h(x)e^{\eta^\top t(x)}\dd x$ and
+differentiate under the integral sign, one line at a time.
+
+$$
+\nabla A(\eta)
+= \frac{\nabla_\eta \int h(x)e^{\eta^\top t(x)}\dd x}{\int h(x)e^{\eta^\top t(x)}\dd x}
+= \frac{\int t(x)\,h(x)e^{\eta^\top t(x)}\dd x}{\int h(x)e^{\eta^\top t(x)}\dd x}
+= \int t(x)\,p(x\mid\eta)\dd x
+= \E_\eta[t(x)].
+$$
+
+The first equality is the chain rule for $\log$; the second moves the gradient inside
+the integral (the integrand is smooth in $\eta$) and uses $\nabla_\eta e^{\eta^\top t} =
+t\,e^{\eta^\top t}$; the third recognises the ratio as the density. So the gradient of the
+log-normaliser is the mean of the sufficient statistic. Call it $\mu(\eta)$, the
+**mean parameter**.
+
+Differentiate once more, using the quotient rule on the ratio of integrals:
+
+$$
+\nabla^2 A(\eta) = \E_\eta[t(x)t(x)^\top] - \E_\eta[t(x)]\,\E_\eta[t(x)]^\top = \mathrm{Cov}_\eta[t(x)].
+$$
+
+A covariance matrix is positive semidefinite, so $A$ has a positive semidefinite
+Hessian everywhere on $\Omega$: **$A$ is convex**. If no non-trivial linear
+combination of the components of $t(x)$ is constant (the family is **minimal**), the
+covariance is positive definite and $A$ is strictly convex, which makes $\eta \mapsto
+\mu(\eta)$ one-to-one. Module 4 uses that to invert the map.
+
+The same Hessian is the **Fisher information** $F(\eta)$. To see why that name applies,
+differentiate the log density with respect to $\eta$:
+
+$$
+\nabla_\eta \log p(x\mid\eta) = t(x) - \nabla A(\eta) = t(x) - \mu(\eta).
+$$
+
+This is the **score**. Its expectation under $p(\cdot\mid\eta)$ is $\mu - \mu = 0$, and
+its covariance is $\mathrm{Cov}[t(x)] = F(\eta)$. The negative Hessian of the
+log-likelihood of one observation is $\nabla^2 A(\eta) = F(\eta)$ as well, so Fisher
+information is the expected curvature of the log-likelihood: how sharply the
+log-likelihood peaks around the true $\eta$, averaged over data. The sharper the peak,
+the more precisely the data determine $\eta$. With $n$ independent observations the
+curvature adds, giving $nF(\eta)$, and the maximum-likelihood estimate has approximate
+covariance $(nF)^{-1}$.
+
+In code, all of this is three lines: `mean_params = jax.grad(log_partition)`,
+`fisher = jax.hessian(log_partition)`, `score = sufficient_stats(x) - mean_params(eta)`.
+You will write exactly those lines in Steps 4 and 5.
+
+### A worked example with numbers
+
+Variant A of the A/B test in `workshop/data.py` has a true conversion rate of
+$p = 0.062$. As a Bernoulli exponential family, $t(x) = x$,
+$\eta = \log\frac{p}{1-p} = \log\frac{0.062}{0.938} = -2.717$, and
+$A(\eta) = \log(1 + e^\eta) = 0.0640$.
+
+- Mean parameter: $\nabla A = \frac{e^\eta}{1 + e^\eta} = \sigma(\eta) = 0.062$, which is
+  $\E[x] = p$ as it must be.
+- Fisher information: $\nabla^2 A = \sigma(\eta)(1 - \sigma(\eta)) = 0.062 \times 0.938 = 0.0582$.
+  This is $\mathrm{Var}[x]$, and it is small: one observation at a low conversion rate
+  carries little information about $\eta$.
+- With $n = 400$ users, the information is $400 \times 0.0582 = 23.3$, so the
+  maximum-likelihood estimate of $\eta$ has standard deviation about
+  $1/\sqrt{23.3} = 0.207$. Mapping back to the probability scale with the derivative
+  $\dd p/\dd\eta = p(1-p) = 0.0582$ gives a standard deviation of about
+  $0.0582 \times 0.207 = 0.012$ on $p$.
+
+So 400 users determine a 6.2% conversion rate to about plus or minus 1.2 percentage
+points, before any prior is involved. The B variant's true rate is 7.9%, a gap of 1.7
+points: comparable to the noise. Module 5 turns this into a posterior probability that
+B is better, and the number will be far from decisive. The Fisher computation already
+tells you why.
+
+### Why natural parameters are worth the inconvenience
+
+The textbook parameters are the ones you report. The natural parameters are the ones
+you compute with, for three reasons that recur in later modules.
+
+- **Products become sums.** Multiplying two densities of the same family multiplies the
+  exponentials, which adds the natural parameters. Bayes' rule with a conjugate prior is
+  exactly such a product, so the posterior update in Module 5 is vector addition.
+- **Divergences become Bregman divergences.** $\KL$ between two members is a function of
+  $A$ and its gradient alone (Module 4). No family-specific derivation.
+- **Gradients of expectations become simple.** Stochastic variational inference (Module 8)
+  updates natural parameters with natural gradients, and in these coordinates the
+  natural gradient of the ELBO is a difference of expected sufficient statistics.
+
+The analogy to keep in mind is log-domain arithmetic: moving to logs turns
+multiplication into addition at the cost of less readable numbers. Natural parameters
+do the same for distributions.
+
+### The five families
+
+| Family | $t(x)$ | $\eta$ | $A(\eta)$ |
+|---|---|---|---|
+| Bernoulli | $x$ | $\log\frac{p}{1-p}$ | $\log(1 + e^{\eta})$ |
+| Categorical($K$), minimal | $(\mathbb 1[x=k])_{k<K-1}$ | $\log\frac{p_k}{p_{K-1}}$ | $\log\big(1 + \sum_{k<K-1} e^{\eta_k}\big)$ |
+| Gaussian($d$) | $(x, \mathrm{vec}(xx^\top))$ | $(\Lambda\mu, \mathrm{vec}(-\tfrac12\Lambda))$ | $\tfrac12\eta_1^\top\Lambda^{-1}\eta_1 - \tfrac12\log\det\Lambda + \tfrac d2\log 2\pi$, with $\Lambda = -2\eta_2$ |
+| Gamma | $(\log x, x)$ | $(\alpha - 1, -\beta)$ | $\log\Gamma(\eta_1 + 1) - (\eta_1 + 1)\log(-\eta_2)$ |
+| Dirichlet($K$) | $\log x$ | $\alpha - 1$ | $\sum_k\log\Gamma(\eta_k + 1) - \log\Gamma\big(\sum_k(\eta_k + 1)\big)$ |
+
+What each one is for in this workshop:
+
+- **Bernoulli**: a conversion, a churn event, a gene being on or off.
+- **Categorical**: the attribution channel of a conversion, the cell type of a cell.
+  The *minimal* form uses $K-1$ parameters because the $K$ probabilities sum to one; the
+  last category is the reference and its natural parameter is fixed at zero. Using all
+  $K$ would make the representation over-complete (see below).
+- **Gaussian** with full covariance $\Sigma = \Lambda^{-1}$: embeddings, regression
+  weights, and the variational family of Day 2. The natural parameters are the
+  precision-weighted mean $\Lambda\mu$ and the negative half precision.
+- **Gamma** with shape $\alpha$ and rate $\beta$: a precision or a rate, always positive.
+  The prior on the precision in the Normal–Gamma model of Module 5.
+- **Dirichlet**: a probability vector, such as the mixture weights of Module 6. The
+  prior conjugate to the Categorical.
+
+For all five, $\log h(x) = 0$ with respect to the stated base measure, and the
+$-\frac d2\log 2\pi$ of the Gaussian is placed inside $A$.
+
+### Over-complete representations: the Gaussian row
+
+$xx^\top$ is symmetric, so the $d^2$ entries of $\mathrm{vec}(xx^\top)$ contain only
+$d(d+1)/2$ distinct statistics. The representation is **over-complete**: there are
+linear combinations of $t(x)$ that are identically zero, so $\mathrm{Cov}[t(x)]$ is
+singular, $A$ is not strictly convex, and $\eta_2$ is identifiable only up to its
+symmetric part. Nothing is wrong with the density; the coordinates are just redundant.
+
+Writing $A$ as a function of the full matrix $\eta_2$ still gives the correct gradient at
+symmetric points. Differentiating
+$-\frac14\eta_1^\top\eta_2^{-1}\eta_1 - \frac12\log\det(-2\eta_2)$ with respect to the full
+matrix $\eta_2$ gives $\frac14\eta_2^{-\top}\eta_1\eta_1^\top\eta_2^{-\top} - \frac12\eta_2^{-\top}$,
+which at $\eta_2 = -\frac12\Lambda$ equals $\mu\mu^\top + \Sigma = \E[xx^\top]$. The
+mean parameters are right; only the Fisher matrix is singular, and the tests check the
+$\eta_1$ block of it. Module 4 and the natural-gradient steps of Module 8 use minimal
+families only, and the Challenge asks you to build a minimal Gaussian.
+
+### How the tests check analytic claims against sampling
+
+Several tests compare an analytic quantity, such as $\nabla A(\eta)$, to a sample
+estimate, such as the average of $t(x)$ over $N$ draws. A sample mean of $N$
+independent draws has standard error $\hat\sigma/\sqrt N$, where $\hat\sigma$ is the
+sample standard deviation. The tests accept a gap of four standard errors. If your
+implementation is correct, the gap is approximately Gaussian with that standard error,
+and the probability of exceeding four of them is about $6\times10^{-5}$ per check. The
+PRNG keys are fixed, so a failure is reproducible and means a real bias, not bad luck.
+This pattern of test appears in every later module; learn to read it here.
+
+### Common misconceptions
+
+- **"A sufficient statistic is just a summary statistic."** It is a summary with a
+  guarantee: the likelihood depends on the data only through it. The sample median is a
+  summary of Gaussian data but not a sufficient statistic.
+- **"Natural parameters live anywhere in $\R^m$."** $\Omega$ can be a strict subset
+  (negative precision for the Gaussian, rate $-\eta_2 > 0$ for the Gamma). Leaving it
+  gives `nan`, which is the main failure mode of the Newton solver in Module 4.
+- **"Fisher information is a property of the data."** It is a property of the model at a
+  parameter value: the expected curvature, averaged over data the model would generate.
+  The observed data enter only through $n$.
+- **"The mean parameter is the mean."** It is the mean of $t(x)$. For the Gamma that is
+  $(\E[\log x], \E[x])$, and the first component is a digamma function, not a mean of $x$.
+
+## Steps
+
+Every step edits `workshop/m03_expfam.py`. `Bernoulli` is complete; read it first, then
+implement the rest in the same style. Functions act on one observation; the tests
+`vmap` them.
+
+### Step 1 — Base-class log density and the minimal Categorical
+
+**What this computes.** The log density is the exponential-family form read literally:
+$\log h(x) + \eta^\top t(x) - A(\eta)$. Once the base class has it, every family gets
+`log_prob` for free from its three defining functions. The Categorical shows why the
+minimal form matters: with the last category as reference, $\eta_k = \log(p_k/p_{K-1})$
+and the normaliser is $\log(1 + \sum_k e^{\eta_k})$, where the $1$ is $e^0$ for the
+reference category.
+
+Implement `ExpFam.log_prob(x, eta)` as
+`log_base_measure(x) + eta @ sufficient_stats(x) - log_partition(eta)`.
+
+Then complete `Categorical`: `sufficient_stats` is the first $K-1$ entries of
+`jax.nn.one_hot(x, K)`; `log_partition` is `logsumexp` of `eta` concatenated with a
+zero; `to_natural(p)` is `log(p[:-1]) - log(p[-1])`; `to_standard(eta)` is the softmax of
+`eta` concatenated with a zero. `sample` is provided.
+
+Sanity check in a REPL before running the tests: for `Categorical(3)` with
+`p = [0.5, 0.3, 0.2]`, `to_natural` should give `[log(2.5), log(1.5)] = [0.916, 0.405]`
+and exponentiating the three `log_prob` values should recover `p`.
+
+```bash
+pytest tests/m03 -k step1
+```
+
+You should see 3 passed: the Bernoulli log-pmf against SciPy through the base class, a
+round-trip of the six-channel attribution probabilities, and that the $K$ log
+probabilities exponentiate to a vector summing to one with the last category's
+sufficient statistic equal to the zero vector.
+
+### Step 2 — Gaussian in natural parameters
+
+**What this computes.** The multivariate version of the expansion in the Background.
+`to_natural` turns $(\mu, \Sigma)$ into $(\Lambda\mu, -\frac12\Lambda)$ with
+$\Lambda = \Sigma^{-1}$; `to_standard` inverts it; `log_partition` is the constant left
+over after the expansion, expressed in $\eta$. The $\log\det$ term is what makes the
+density integrate to one for every covariance.
+
+Complete `Gaussian`: `sufficient_stats(x) = concat(x, outer(x, x).ravel())`,
+`log_partition` from the table using `jnp.linalg.slogdet` and `jnp.linalg.solve`,
+`to_natural(mu, cov)` and `to_standard(eta)`. The helper `_split(eta)` returns
+`(eta1, eta2)` with `eta2` reshaped to `[d, d]`.
+
+Sanity check: for $d = 1$, $\mu = 0$, $\sigma^2 = 1$, `to_natural` should give
+`[0, -0.5]` and `log_partition` should return $\frac12\log 2\pi = 0.919$.
+
+```bash
+pytest tests/m03 -k step2
+```
+
+You should see 3 passed, including a comparison with
+`scipy.stats.multivariate_normal.logpdf` on ten random points in $\R^3$.
+
+### Step 3 — Gamma and Dirichlet
+
+**What this computes.** Both families have $t(x)$ involving $\log x$, so their
+log-partition functions involve $\log\Gamma$, the log of the Gamma function (the
+continuous factorial). The Dirichlet's $A$ is the log of the multivariate Beta function,
+the normaliser of $\prod_k x_k^{\alpha_k - 1}$ over the simplex.
+
+Complete both families from the table. Use `jax.scipy.special.gammaln`. Note that the
+Gamma's `to_standard` returns `(alpha, beta)` in shape/rate form: the density is
+$\frac{\beta^\alpha}{\Gamma(\alpha)}x^{\alpha-1}e^{-\beta x}$, so a larger rate means
+smaller values.
+
+```bash
+pytest tests/m03 -k step3
+```
+
+You should see 2 passed, both against SciPy's `logpdf`.
+
+### Step 4 — Mean parameters by autodiff
+
+**What this computes.** $\nabla A(\eta) = \E_\eta[t(x)]$, the identity derived in the
+Background. You do not derive the moments of any family; you differentiate the
+normaliser and let JAX do the calculus.
+
+Implement `ExpFam.mean_params(eta)` as `jax.grad(self.log_partition)(eta)`. One line.
+
+Sanity check: for the Gamma with $\alpha = 3.5$, $\beta = 1.7$, the second mean
+parameter should be $\alpha/\beta = 2.059$, the ordinary mean; the first should be
+$\psi(3.5) - \log 1.7 = 1.103 - 0.531 = 0.572$, where $\psi$ is the digamma function.
+
+```bash
+pytest tests/m03 -k step4
+```
+
+You should see 5 passed. The Bernoulli, Gamma and Dirichlet checks are analytic
+(sigmoid, $\psi(\alpha) - \log\beta$ and $\alpha/\beta$, $\psi(\alpha_k) - \psi(\sum\alpha)$).
+The Categorical and Gaussian checks are against the sample mean of $t(x)$ over 200 000
+draws; the Gaussian check also confirms the second block equals $\Sigma + \mu\mu^\top$.
+
+### Step 5 — Fisher information and the score
+
+**What this computes.** $\nabla^2 A(\eta) = \mathrm{Cov}_\eta[t(x)]$, the Fisher
+information, and the score $t(x) - \mu(\eta)$. The tests check the two facts the
+Background derived: the score has mean zero, and its covariance equals the Hessian of
+$A$. They also check that the minimal Categorical's Fisher matrix is positive definite
+while only the $\eta_1$ block of the over-complete Gaussian's is tested.
+
+Implement `ExpFam.fisher(eta)` as `jax.hessian(self.log_partition)(eta)` and
+`ExpFam.score(x, eta)` as `sufficient_stats(x) - mean_params(eta)`.
+
+Sanity check: `Bernoulli().fisher(to_natural(0.062))` should print `[[0.0582]]`, the
+number from the worked example.
+
+```bash
+pytest tests/m03 -k step5
+```
+
+You should see 6 passed: $F$ equals the sample covariance of $t(x)$ for Categorical,
+Gamma and Dirichlet; $F$ is positive definite for the minimal Categorical; the Gaussian's
+$\eta_1$-block of $F$ equals $\Sigma$; and for the Gamma, the score has zero mean and
+$\E[\text{score}\,\text{score}^\top] = F$.
+
+## Checkpoint
+
+::: {.callout-tip title="Checkpoint"}
+```bash
+pytest tests/m03
+```
+19 tests pass in under 10 seconds on a laptop CPU. Modules 4, 5, 6 and 8 import this
+file. Before moving on, be able to answer without looking: why is $A$ convex, and what
+does the Fisher information of a Bernoulli at $p = 0.062$ say about an A/B test?
+
+**Which expectation did you just compute?** The mean parameters $\E_\eta[t(x)]$, by
+differentiating $A$ instead of integrating, and the Fisher information
+$\mathrm{Cov}_\eta[t(x)]$, by differentiating twice. The tests computed the same
+expectations by Monte Carlo and compared.
+:::
+
+## Challenge
+
+::: {.callout-note title="Challenge"}
+1. Add a minimal Gaussian family whose second block is the upper triangle of
+   $-\frac12\Lambda$ (dimension $d + d(d+1)/2$). Show numerically that its Fisher
+   matrix is positive definite and that its KL divergences (Module 4) agree with the
+   over-complete version.
+2. Add the Poisson and the von Mises families. The von Mises log-partition involves
+   $\log I_0(\kappa)$; use `jax.scipy.special.i0e` and explain why the exponentially
+   scaled version is needed.
+3. Derive the Cramér–Rao bound $\mathrm{Var}[\hat\eta] \ge (nF(\eta))^{-1}$ for an
+   unbiased estimator from the two score identities, and check it on the A/B data by
+   simulation.
+:::
+
+## Going deeper
+
+- Wainwright and Jordan, "Graphical Models, Exponential Families, and Variational
+  Inference", *Foundations and Trends in Machine Learning* 1(1–2), 2008, Chapter 3
+  (exponential families, mean parameters, the log-partition function and its
+  conjugate). Dense; read Sections 3.1–3.3 after this module and 3.4–3.6 after Module 4.
+- Murphy, *Probabilistic Machine Learning: Advanced Topics* (MIT Press, 2023), Chapter 2,
+  Section 2.4 (the exponential family). The gentlest full treatment.
+- Bishop, *Pattern Recognition and Machine Learning* (Springer, 2006), Section 2.4, and
+  Section 1.6 for the information-theoretic reading of $A$.
+- Nielsen and Garcia, "Statistical exponential families: A digest with flash cards"
+  (2009), for a compact table of natural parameters across many families.
+
+## Troubleshooting
+
+::: {.callout-warning title="Troubleshooting"}
+**`log_partition` of the Gaussian returns `nan`.** $\Lambda = -2\eta_2$ is not
+positive definite because `to_natural` forgot the factor $-\frac12$, or `slogdet`
+was applied to $\eta_2$ instead of $\Lambda$. Natural parameters have a domain $\Omega$;
+outside it the normaliser does not exist.
+
+**Mean-parameter test for the Gaussian fails only in the second block.** You
+symmetrised or halved $\eta_2$ inside `log_partition`. Treat $\eta_2$ as a full
+matrix; the gradient is right at symmetric points without any correction.
+
+**Categorical tests fail with a shape error.** `one_hot` returns length $K$; you must
+drop the last entry. `log_partition` must append a zero before `logsumexp`.
+
+**Fisher test passes for Gamma but fails for Dirichlet.** Check `gammaln` is applied
+to $\eta + 1$, not $\eta$, in both terms.
+
+**You expected `mean_params` of the Gamma to return the mean.** It returns
+$\E[(\log x, x)]$. The second entry is the mean; the first is $\psi(\alpha) - \log\beta$.
+
+**A Monte Carlo test fails by a hair.** Each check is a four-standard-error test, so
+a correct implementation fails about once in ten thousand runs. The keys are fixed,
+so a failure is deterministic: it indicates a real bias, not bad luck. Compare your
+analytic value against the sample estimate printed in the assertion; the sign of the
+gap usually identifies the term that is wrong.
+:::

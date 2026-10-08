@@ -1,0 +1,120 @@
+project:
+  type: website
+  output-dir: _site
+  resources:
+    - widgets/*.js
+    - widgets/_test.html
+    - figures/*.png
+    - figures/*.gif
+  preview:
+    port: 8000
+    browser: false
+website:
+  title: Bayesian Inference from Scratch
+  description: A five-day hands-on workshop in modern approximate inference, built in JAX.
+  search:
+    location: navbar
+    type: overlay
+  navbar:
+    left:
+    - text: Workshop
+      href: index.qmd
+    - text: Instructor
+      href: instructor/facilitator-guide.qmd
+    - text: References
+      href: reference/references.qmd
+  sidebar:
+    style: docked
+    search: false
+    collapse-level: 2
+    contents:
+    - text: Home
+      href: index.qmd
+    - section: Day 0 — Before you arrive
+      contents:
+      - text: Module 0 — Setup
+        href: day0/m00-setup.qmd
+      - text: Module 1 — JAX warm-up
+        href: day0/m01-jax-warmup.qmd
+      - text: Module 2 — Diagnostic
+        href: day0/m02-diagnostic.qmd
+      - text: Module 2b — Bayesian inference from first principles
+        href: day0/m02b-foundations.qmd
+    - section: Day 1 — Exponential families
+      contents:
+      - text: Module 3 — Exponential-family core
+        href: day1/m03-expfam-core.qmd
+      - text: Module 4 — KL and Bregman geometry
+        href: day1/m04-kl-bregman.qmd
+      - text: Module 5 — Conjugacy
+        href: day1/m05-conjugacy.qmd
+    - section: Day 2 — Variational inference
+      contents:
+      - text: Module 6 — ELBO and CAVI
+        href: day2/m06-cavi.qmd
+      - text: Module 7 — Gradient estimators
+        href: day2/m07-gradient-estimators.qmd
+      - text: Module 8 — Black-box VI engine
+        href: day2/m08-bbvi-engine.qmd
+    - section: Day 3 — Modern MCMC
+      contents:
+      - text: Module 9 — MH and Hamiltonian dynamics
+        href: day3/m09-hmc-core.qmd
+      - text: Module 10 — Adaptation
+        href: day3/m10-adaptation.qmd
+      - text: Module 11 — Diagnostics and comparison
+        href: day3/m11-diagnostics.qmd
+    - section: Day 4 — Probabilistic programming internals
+      contents:
+      - text: Module 12 — Traces and effect handlers
+        href: day4/m12-effect-handlers.qmd
+      - text: Module 13 — Inference through the PPL
+        href: day4/m13-ppl-inference.qmd
+      - text: Module 14 — Amortised VI, a VAE
+        href: day4/m14-vae.qmd
+    - section: Day 5 — Capstone
+      contents:
+      - text: Choosing a track
+        href: day5/index.qmd
+      - text: Track A — Normalising flows
+        href: day5/m15a-flows.qmd
+      - text: Track B — Score-based diffusion
+        href: day5/m15b-diffusion.qmd
+      - text: Track C — Structural causal models
+        href: day5/m15c-scm.qmd
+      - text: Report template
+        href: day5/report-template.qmd
+    - section: Instructor
+      contents:
+      - text: Facilitator guide
+        href: instructor/facilitator-guide.qmd
+      - text: Day schedules
+        href: instructor/day-schedules.qmd
+    - section: Reference
+      contents:
+      - text: Glossary
+        href: reference/glossary.qmd
+      - text: References
+        href: reference/references.qmd
+      - text: Troubleshooting index
+        href: reference/troubleshooting-index.qmd
+  page-navigation: true
+format:
+  html:
+    theme:
+    - cosmo
+    - styles.scss
+    toc: true
+    toc-depth: 3
+    toc-location: right
+    number-sections: false
+    code-copy: true
+    code-overflow: wrap
+    html-math-method: mathjax
+    link-external-newwindow: true
+    include-in-header:
+      text: '<script>
+
+        window.MathJax = { tex: { macros: { E: "\\mathbb{E}", R: "\\mathbb{R}", KL: "\\mathrm{KL}", dd: "\\,\\mathrm{d}", tr: "\\operatorname{tr}", diag: "\\operatorname{diag}", ELBO: "\\mathcal{L}" } } };
+
+        </script>'
