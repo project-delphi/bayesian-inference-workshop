@@ -45,9 +45,9 @@ laptop CPU, measured during the build. Participant code is typically within 2x o
 | m06 ELBO and CAVI | 14 | 10 s | 3.0 h |
 | m07 Gradient estimators | 10 | 31 s | 3.0 h |
 | m08 Black-box VI engine | 11 | 8 s | 2.5 h |
-| m09 MH and Hamiltonian dynamics | 10 | 3 s | 2.5 h |
+| m09 MH and Hamiltonian dynamics | 11 | 4 s | 2.5 h |
 | m10 Adaptation | 10 | 5 s | 3.0 h |
-| m11 Diagnostics and comparison | 12 | 11 s | 3.0 h |
+| m11 Diagnostics and comparison | 12 | 8 s | 3.0 h |
 | m12 Traces and effect handlers | 17 | 4 s | 3.0 h |
 | m13 Inference through the PPL | 11 | 7 s | 2.5 h |
 | m14 Amortised VI, a VAE | 10 | 10 s | 3.0 h |
@@ -61,8 +61,9 @@ Module times include roughly one hour of reading each. Days 1 to 4 therefore run
 about 8.5 hours. For a strict seven-hour day: ask participants to read the Background
 sections of the day's modules the evening before (about 1.5 hours), and treat each
 module's last step as optional for anyone who is behind. Which steps are safe to skip:
-m04 Step 4, m05 Step 5, m07 Step 5, m08 Step 5, m10 Step 5, m11 Step 4, m13 Step 5,
-m14 Step 5. Nothing later depends on them.
+m04 Step 4, m05 Step 5, m07 Step 5, m08 Step 5, m10 Step 5, m13 Step 5, m14 Step 5.
+Nothing later depends on them. m11 Step 4 can be cut to `summarize` alone, which m13
+calls; `compare_hmc_vs_vi` is used nowhere else.
 
 ## Where people get stuck
 
@@ -119,7 +120,9 @@ SVI, which converges to the prior. Bijector log-det evaluated at the wrong point
 `Chain`.
 
 **m09.** Asymmetric half-kicks in leapfrog (reversibility fails, volume preservation
-passes). Not holding integration time fixed in the step-size scaling test.
+passes). Not holding integration time fixed in the step-size scaling test. Evaluating
+the gradient in both half-kicks (the count test reports 50 for 25 steps), or carrying
+the gradient but not refreshing it after the drift, which breaks reversibility.
 
 **m10.** Dual averaging fed `nan` acceptance probabilities and collapsing the step size.
 Off-by-one in the warm-up window ends. Dtype mismatches in `lax.scan` carries holding
@@ -196,9 +199,12 @@ Ask these at the module boundary, to the room or to a pair. Five minutes each.
   a 30-minute call.
 - End of Day 1: everyone has `pytest tests/m03 tests/m04 tests/m05` passing. The m04
   Challenges absorb fast participants.
-- End of Day 2: m08 must pass for Day 3's m11 comparison and Day 4's m13. A participant
-  who is behind on m07 can skip its Step 5 and use the notebook plot.
+- End of Day 2: m08 must pass for Day 3's m11 comparison and Day 4's m13; the m11
+  comparison also reuses m07's `churn_log_joint` and `laplace` (m07 Step 1). A
+  participant who is behind on m07 can skip its Step 5 and use the notebook plot.
 - End of Day 3: m10 and m11 must pass for Day 4's m13 and Day 5's Track A.
-- End of Day 4: m12 and m13 must pass for Track C; m14 is self-contained.
+- End of Day 4: m12 and m13 must pass for Track C. m14 Step 1 (`init_mlp`, `mlp`) must
+  pass for Tracks A and B, which build their networks from it; the rest of m14 is
+  self-contained.
 - Day 5: assign tracks at the start of the day. Pairs are allowed; reports are
   individual.

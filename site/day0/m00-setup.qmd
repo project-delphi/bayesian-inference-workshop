@@ -84,6 +84,10 @@ jax.config.update("jax_enable_x64", True)
 
 ### Step 1 — Install
 
+**What this computes.** A virtual environment in `.venv` with the pinned versions of
+JAX, NumPy, SciPy, Matplotlib and pytest, and both packages, `workshop` and
+`solutions`, installed in editable mode.
+
 Clone or unpack the repository, then from its root:
 
 ```bash
@@ -110,6 +114,10 @@ You should see `0.11.2 [CpuDevice(id=0)]`.
 
 ### Step 2 — Run the environment tests
 
+**What this computes.** The only suite that passes before you write any code: it
+confirms 64-bit floats, the pinned versions, a CPU device, and the two provided helper
+modules: the dataset generators and the change-of-variables checker.
+
 ```bash
 pytest tests/m00
 ```
@@ -120,6 +128,10 @@ change-of-variables checker, `workshop/jacobian_check.py`, which Module 2b intro
 Seven check the provided dataset helpers in `workshop/data.py`.
 
 ### Step 3 — Run a module against the starter and the solutions
+
+**What this computes.** One module's tests twice: once against your stubs, where every
+test must fail, and once against the reference implementation, where every test must
+pass.
 
 ```bash
 pytest tests/m01
@@ -132,6 +144,9 @@ message in full now, so that you recognise the shape later: the traceback ends a
 stub in `workshop/m01_jax.py`, and the comment on that line names the module and step.
 
 ### Step 4 — Serve the site
+
+**What this computes.** A local copy of this site, re-rendered on every save, with the
+mathematics typeset.
 
 ```bash
 make serve
@@ -149,6 +164,9 @@ first visit. `make serve` runs `quarto preview`, which re-renders a page when it
 source changes.
 
 ### Step 5 — Optional: notebooks
+
+**What this computes.** Jupyter notebooks generated from the `.py` sources in
+`notebooks/`, for working through a module interactively.
 
 ```bash
 uv pip install -e ".[notebooks]" --python .venv/bin/python

@@ -3,12 +3,14 @@
 Split-R̂ and effective sample size following Gelman et al. (BDA3, Chapter 11) and
 Vehtari et al. (2021), divergence counting from the energy error, multi-chain runs via
 jax.vmap, and a quantitative comparison of an HMC posterior with a mean-field Gaussian
-variational fit on the same SaaS-churn logistic regression.
+variational fit on the same SaaS-churn logistic regression. The model and its Laplace
+reference are Module 7's `churn_log_joint` and `laplace`.
 
 Chains are always arrays of shape [m, n, d]: m chains, n draws, d coordinates.
 """
 from __future__ import annotations
 
+from functools import partial
 from typing import Callable
 
 import jax
@@ -116,19 +118,18 @@ def divergences(infos: HMCInfo, threshold: float = 1000.0) -> Array:
     return jnp.sum(~jnp.isfinite(e) | (e > threshold))
 
 
+@partial(jax.jit, static_argnames=("log_prob", "n_warmup", "n_samples", "max_leapfrog"))
 def run_chains(log_prob: LogProb, key: Array, q0s: Array, n_warmup: int, n_samples: int, step_size0: float = 0.1, max_leapfrog: int = 16, target_accept: float = 0.8) -> tuple[Array, HMCInfo, Adapted]:
     """Run adaptive_hmc independently on each row of q0s [m, d] with jax.vmap over
-    (key, q0). Returns (samples [m, n_samples, d], HMCInfo with leading axes [m, n],
-    Adapted with leading axis m). Wrap in jax.jit with the integer arguments static."""
+    (key, q0), one key per chain from jax.random.split. Returns (samples
+    [m, n_samples, d], HMCInfo with leading axes [m, n], Adapted with leading axis m).
+
+    The decorator compiles one program per target function and per value of the
+    integer arguments; a second call with the same `log_prob` object reuses it. A
+    lambda built afresh for each call is a new object and compiles again."""
     # [m11 step 3]
-    m = q0s.shape[0]
-    keys = jax.random.split(key, m)
-
-    @jax.jit
-    def run(keys, q0s):
-        return jax.vmap(lambda k, q: adaptive_hmc(log_prob, k, q, n_warmup, n_samples, step_size0, max_leapfrog, target_accept))(keys, q0s)
-
-    return run(keys, q0s)
+    keys = jax.random.split(key, q0s.shape[0])
+    return jax.vmap(lambda k, q: adaptive_hmc(log_prob, k, q, n_warmup, n_samples, step_size0, max_leapfrog, target_accept))(keys, q0s)
 
 
 # --------------------------------------------------------------------------------------
@@ -167,24 +168,3 @@ def compare_hmc_vs_vi(hmc_chains: Array, vi_loc: Array, vi_scale: Array) -> dict
         "max_abs_corr": jnp.max(jnp.abs(off)),
     }
 
-
-# --------------------------------------------------------------------------------------
-# The churn posterior and a Laplace reference
-# --------------------------------------------------------------------------------------
-def churn_log_joint(beta: Array, X: Array, y: Array, prior_scale: float = 2.5) -> Array:
-    """Bayesian logistic regression: beta_k ~ N(0, prior_scale^2),
-    y_i ~ Bernoulli(sigmoid(x_i . beta)). Same model as Module 7."""
-    logits = X @ beta
-    ll = jnp.sum(y * logits - jax.nn.softplus(logits))
-    return ll + jnp.sum(-0.5 * (beta / prior_scale) ** 2)
-
-
-def laplace_approximation(log_joint: LogProb, x0: Array, n_newton: int = 50) -> tuple[Array, Array]:
-    """Mode by Newton's method and covariance = inverse negative Hessian at the mode."""
-    g, H = jax.grad(log_joint), jax.hessian(log_joint)
-
-    def step(_, x):
-        return x - jnp.linalg.solve(H(x), g(x))
-
-    mode = jax.lax.fori_loop(0, n_newton, step, x0)
-    return mode, jnp.linalg.inv(-H(mode))

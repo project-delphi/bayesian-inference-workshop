@@ -521,7 +521,11 @@ $\varepsilon$ at fixed $L\varepsilon$ must divide the energy error by about four
 
 Implement `leapfrog(grad_log_prob, q, p, step_size, n_steps, inv_mass)` with
 `lax.fori_loop` (the step count may be traced in Module 10). The mass matrix is
-diagonal and passed as its inverse.
+diagonal and passed as its inverse. The gradient is the expensive part of a step, and
+the one that closes step $l$ is evaluated at the same $q$ as the one that opens step
+$l + 1$. Compute it once before the loop and carry it in the loop state, so $L$ steps
+cost $L + 1$ gradient evaluations rather than $2L$. Every sampler in Modules 10 to 13
+runs on this function; on the Module 11 churn posterior the change halves the run time.
 
 Sanity check: `leapfrog(grad, [1.0], [0.0], 0.5, 1, [1.0])` on the standard normal
 should return `q = 0.875`, `p = -0.46875`, the row of the table above.
@@ -530,10 +534,11 @@ should return `q = 0.875`, `p = -0.46875`, the row of the table above.
 pytest tests/m09 -k step2
 ```
 
-You should see 3 passed: integrate 25 steps, negate the momentum, integrate 25 more and
+You should see 4 passed: integrate 25 steps, negate the momentum, integrate 25 more and
 recover the start to $10^{-8}$; the Jacobian determinant of one step via `jax.jacfwd` is
 one to $10^{-10}$; halving the step size over a fixed integration time divides the
-energy error by a factor between 3 and 5.5.
+energy error by a factor between 3 and 5.5; and 25 steps call the gradient exactly 26
+times, counted at run time with `jax.debug.callback`.
 
 ### Step 3 — Hamiltonian and one HMC transition
 

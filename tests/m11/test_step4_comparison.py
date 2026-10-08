@@ -1,3 +1,4 @@
+import functools
 import importlib
 
 import jax
@@ -6,10 +7,12 @@ import numpy as np
 import pytest
 
 from workshop.data import saas_churn
-from workshop.m11_diagnostics import churn_log_joint, compare_hmc_vs_vi, laplace_approximation, run_chains, summarize
+from workshop.m07_gradients import churn_log_joint, laplace
+from workshop.m11_diagnostics import compare_hmc_vs_vi, run_chains, summarize
 from tests._util import key
 
 
+@functools.cache  # one compiled run shared by the three tests
 def _setup():
     X, y, _ = saas_churn()
     X, y = jnp.asarray(X), jnp.asarray(y, dtype=float)
@@ -21,7 +24,7 @@ def _setup():
 def test_step4_summary_matches_laplace():
     lj, chains, info = _setup()
     s = summarize(chains)
-    mode, cov = laplace_approximation(lj, jnp.zeros(5))
+    mode, cov = laplace(lj, jnp.zeros(5))
     sd = jnp.sqrt(jnp.diag(cov))
     assert set(s) >= {"mean", "sd", "q05", "q95", "rhat", "ess"}
     assert bool(jnp.all(jnp.abs(s["mean"] - mode) <= 0.1 * sd + 0.02))
@@ -32,7 +35,7 @@ def test_step4_summary_matches_laplace():
 
 def test_step4_compare_structure_with_laplace_as_stand_in():
     lj, chains, _ = _setup()
-    mode, cov = laplace_approximation(lj, jnp.zeros(5))
+    mode, cov = laplace(lj, jnp.zeros(5))
     out = compare_hmc_vs_vi(chains, mode, jnp.sqrt(jnp.diag(cov)))
     assert out["mean_diff_in_sd"].shape == (5,) and out["sd_ratio"].shape == (5,)
     assert float(jnp.abs(out["mean_diff_in_sd"]).max()) < 0.15

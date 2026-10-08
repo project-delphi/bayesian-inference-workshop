@@ -283,9 +283,10 @@ and agreement with a 200 000-sample Monte Carlo estimate within four standard er
 
 ### Step 5 — Conceptual quiz
 
-**What this checks.** Eight facts that Modules 3 and 4 use without comment. Each
-question is followed by a hint at the idea behind it, not the answer. Return a dict
-from `quiz_answers()`, one lower-case letter per question; the test compares hashes.
+**What this computes.** A dict of eight answers, one lower-case letter per question,
+on facts that Modules 3 and 4 use without comment. Each question is followed by a hint
+at the idea behind it, not the answer. Return the dict from `quiz_answers()`; the test
+compares hashes.
 
 1. For convex $f$ and any random variable $X$ with finite mean, Jensen's inequality states
    $\E[f(X)] \;?\; f(\E[X])$. (a) $\le$ (b) $\ge$ (c) $=$

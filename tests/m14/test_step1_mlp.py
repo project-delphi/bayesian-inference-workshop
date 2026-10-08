@@ -22,3 +22,6 @@ def test_step1_forward_matches_hand_computation_and_is_linear_on_output():
     ref = h @ params[1]["w"] + params[1]["b"]
     np.testing.assert_allclose(mlp(params, x), ref, rtol=1e-12)
     assert mlp(params, x).shape == (7, 2)
+    # Modules 15a and 15b reuse this network; 15b passes a different activation.
+    h = jax.nn.silu(x @ params[0]["w"] + params[0]["b"])
+    np.testing.assert_allclose(mlp(params, x, activation=jax.nn.silu), h @ params[1]["w"] + params[1]["b"], rtol=1e-12)

@@ -11,7 +11,7 @@ centred hierarchical model on which mean-field Gaussians fail.
 
 Public API
 ----------
-init_mlp(key, sizes), mlp(params, x)
+init_conditioner(key, sizes)  (Module 14's MLP with a zero last layer)
 make_masks(dim, n_layers) -> [n_layers, dim]
 coupling_forward(params, mask, z) -> (x, log_det); coupling_inverse(params, mask, x) -> (z, log_det)
 init_flow(key, dim, n_layers, hidden=32) -> params
@@ -33,6 +33,7 @@ from jax import lax
 from .m08_bbvi import adam_init, adam_update
 from .m09_hmc import UPLIFT_DIM, uplift_noncentered_log_prob, uplift_noncentered_to_centered
 from .m11_diagnostics import run_chains
+from .m14_vae import init_mlp, mlp
 
 Array = jax.Array
 LogProb = Callable[[Array], Array]
@@ -43,31 +44,14 @@ SCALE_BOUND = 2.0  # |log-scale| of every coupling layer is bounded by this (tan
 # --------------------------------------------------------------------------------------
 # Step 1: conditioner MLP and one affine coupling layer
 # --------------------------------------------------------------------------------------
-def init_mlp(key: Array, sizes: list[int]) -> list[tuple[Array, Array]]:
-    """Weights and biases for a tanh MLP with layer widths `sizes`.
-
-    Hidden layers use scaled Gaussian initialisation (std 1/sqrt(fan_in)); the LAST
-    layer is initialised to zero so that the layer's shift and log-scale are zero and
-    the coupling is the identity at initialisation. Returns a list of (W, b)."""
+def init_conditioner(key: Array, sizes: list[int]) -> list[dict[str, Array]]:
+    """Module 14's init_mlp(key, sizes) with the LAST layer's weights set to zero (its
+    biases are already zero), so that the conditioner outputs zero shift and log-scale
+    and the coupling is the identity at initialisation. Apply it with Module 14's mlp."""
     # [m15a step 1]
-    params = []
-    keys = jax.random.split(key, len(sizes) - 1)
-    for i, (k, n_in, n_out) in enumerate(zip(keys, sizes[:-1], sizes[1:])):
-        last = i == len(sizes) - 2
-        W = jnp.zeros((n_in, n_out)) if last else jax.random.normal(k, (n_in, n_out)) / jnp.sqrt(n_in)
-        params.append((W, jnp.zeros(n_out)))
+    params = init_mlp(key, sizes)
+    params[-1] = {"w": jnp.zeros_like(params[-1]["w"]), "b": params[-1]["b"]}
     return params
-
-
-def mlp(params: list[tuple[Array, Array]], x: Array) -> Array:
-    """Apply the MLP to one input vector: tanh between layers, linear output."""
-    # [m15a step 1]
-    h = x
-    for i, (W, b) in enumerate(params):
-        h = h @ W + b
-        if i < len(params) - 1:
-            h = jnp.tanh(h)
-    return h
 
 
 def make_masks(dim: int, n_layers: int) -> Array:
@@ -86,7 +70,7 @@ def _shift_log_scale(params, mask, z_cond):
     return shift, log_scale
 
 
-def coupling_forward(params: list[tuple[Array, Array]], mask: Array, z: Array) -> tuple[Array, Array]:
+def coupling_forward(params: list[dict[str, Array]], mask: Array, z: Array) -> tuple[Array, Array]:
     """x = mask * z + (1 - mask) * (z * exp(s) + t) with (t, s) = conditioner(mask * z).
 
     The conditioner MLP outputs 2 * dim values: the first dim are the shift t, the second
@@ -98,7 +82,7 @@ def coupling_forward(params: list[tuple[Array, Array]], mask: Array, z: Array) -
     return x, jnp.sum((1 - mask) * log_scale)
 
 
-def coupling_inverse(params: list[tuple[Array, Array]], mask: Array, x: Array) -> tuple[Array, Array]:
+def coupling_inverse(params: list[dict[str, Array]], mask: Array, x: Array) -> tuple[Array, Array]:
     """Exact inverse of coupling_forward. Returns (z, log_det) where log_det is the
     log-determinant of the INVERSE map, i.e. -sum((1 - mask) * s)."""
     # [m15a step 1]
@@ -111,12 +95,13 @@ def coupling_inverse(params: list[tuple[Array, Array]], mask: Array, x: Array) -
 # Step 2: the RealNVP stack with a final learned affine layer
 # --------------------------------------------------------------------------------------
 def init_flow(key: Array, dim: int, n_layers: int, hidden: int = 32) -> dict:
-    """params = {"layers": [mlp params per coupling], "act_log_scale": zeros(dim),
-    "act_shift": zeros(dim)}. Each conditioner is an MLP dim -> hidden -> hidden -> 2 dim.
+    """params = {"layers": [conditioner params per coupling], "act_log_scale": zeros(dim),
+    "act_shift": zeros(dim)}. Each conditioner is init_conditioner with sizes
+    dim -> hidden -> hidden -> 2 dim.
     The masks are not parameters; recompute them with make_masks(dim, n_layers)."""
     # [m15a step 2]
     keys = jax.random.split(key, n_layers)
-    layers = [init_mlp(k, [dim, hidden, hidden, 2 * dim]) for k in keys]
+    layers = [init_conditioner(k, [dim, hidden, hidden, 2 * dim]) for k in keys]
     return {"layers": layers, "act_log_scale": jnp.zeros(dim), "act_shift": jnp.zeros(dim)}
 
 

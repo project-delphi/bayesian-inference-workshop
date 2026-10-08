@@ -1012,11 +1012,12 @@ def m11_autocorrelation():
 @figure("m11_hmc_vs_vi.png")
 def m11_hmc_vs_vi():
     from solutions import m11_diagnostics as m11
+    from solutions.m07_gradients import churn_log_joint
     from solutions.m08_bbvi import fit
 
     X, y, _ = data.saas_churn()
     X, y = jnp.asarray(X), jnp.asarray(y, float)
-    lj = lambda b: m11.churn_log_joint(b, X, y)
+    lj = lambda b: churn_log_joint(b, X, y)
 
     def compute():
         chains, info, _ = m11.run_chains(lj, key(1100), jnp.zeros((4, 5)), 500, 1000)

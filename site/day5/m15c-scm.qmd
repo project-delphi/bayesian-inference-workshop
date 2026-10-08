@@ -4,7 +4,7 @@ title: "Track C — Structural causal models and counterfactual inference"
 
 ## Overview
 
-**Why this track exists.** Everything on Days 1 to 4 answered questions of the form
+**Why this module exists.** Everything on Days 1 to 4 answered questions of the form
 "given what I observed, what is plausible?". Many decisions need a different kind of
 question: "what would happen if I *did* something?" and "what would have happened last
 week if I had done something else?". These are not conditional probabilities, and a

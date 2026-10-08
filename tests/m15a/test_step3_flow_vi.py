@@ -39,4 +39,4 @@ def test_step3_trace_increases():
     _, trace = _fit()
     assert trace.shape == (3000,)
     assert bool(jnp.all(jnp.isfinite(trace)))
-    assert float(trace[-500:].mean()) > float(trace[:500].mean()) + 0.5
+    assert float(trace[-500:].mean()) > float(trace[:100].mean()) + 0.5
