@@ -10,7 +10,6 @@ Chains are always arrays of shape [m, n, d]: m chains, n draws, d coordinates.
 """
 from __future__ import annotations
 
-from functools import partial
 from typing import Callable
 
 import jax
@@ -118,18 +117,19 @@ def divergences(infos: HMCInfo, threshold: float = 1000.0) -> Array:
     return jnp.sum(~jnp.isfinite(e) | (e > threshold))
 
 
-@partial(jax.jit, static_argnames=("log_prob", "n_warmup", "n_samples", "max_leapfrog"))
 def run_chains(log_prob: LogProb, key: Array, q0s: Array, n_warmup: int, n_samples: int, step_size0: float = 0.1, max_leapfrog: int = 16, target_accept: float = 0.8) -> tuple[Array, HMCInfo, Adapted]:
     """Run adaptive_hmc independently on each row of q0s [m, d] with jax.vmap over
-    (key, q0), one key per chain from jax.random.split. Returns (samples
-    [m, n_samples, d], HMCInfo with leading axes [m, n], Adapted with leading axis m).
-
-    The decorator compiles one program per target function and per value of the
-    integer arguments; a second call with the same `log_prob` object reuses it. A
-    lambda built afresh for each call is a new object and compiles again."""
+    (key, q0). Returns (samples [m, n_samples, d], HMCInfo with leading axes [m, n],
+    Adapted with leading axis m). Wrap in jax.jit with the integer arguments static."""
     # [m11 step 3]
-    keys = jax.random.split(key, q0s.shape[0])
-    return jax.vmap(lambda k, q: adaptive_hmc(log_prob, k, q, n_warmup, n_samples, step_size0, max_leapfrog, target_accept))(keys, q0s)
+    m = q0s.shape[0]
+    keys = jax.random.split(key, m)
+
+    @jax.jit
+    def run(keys, q0s):
+        return jax.vmap(lambda k, q: adaptive_hmc(log_prob, k, q, n_warmup, n_samples, step_size0, max_leapfrog, target_accept))(keys, q0s)
+
+    return run(keys, q0s)
 
 
 # --------------------------------------------------------------------------------------

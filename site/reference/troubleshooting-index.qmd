@@ -46,7 +46,6 @@ them.
 | Energy error drops by 2x, not 4x, when halving the step | integration time not held fixed (constant `n_steps`) | [9](../day3/m09-hmc-core.qmd) |
 | Leapfrog gradient count is 50 for 25 steps | gradient evaluated in both half-kicks; carry the end-of-step gradient into the next step | [9](../day3/m09-hmc-core.qmd) |
 | Reversibility fails after carrying the gradient | carried gradient not recomputed after the drift, so the closing half-kick uses the old $q$ | [9](../day3/m09-hmc-core.qmd) |
-| Every `run_chains` call takes as long as the first | target written as an inline lambda in each call: a new static argument, so a new compilation | [11](../day3/m11-diagnostics.qmd) |
 | Post-warm-up acceptance well above target | averaged log step size biases to smaller steps; terminal window too short | [10](../day3/m10-adaptation.qmd) |
 | ESS exactly $N$ for every coordinate | truncated at lag 0; pair sums vs single lags, or unnormalised autocovariance | [11](../day3/m11-diagnostics.qmd) |
 | ESS far above $N$ or negative | Geyer loop did not stop at the first non-positive pair | [11](../day3/m11-diagnostics.qmd) |

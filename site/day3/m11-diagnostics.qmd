@@ -339,12 +339,7 @@ compiled once, so four chains cost about what one does on a multi-core CPU.
 
 Implement `divergences(infos, threshold=1000.0)` counting energy errors above the
 threshold or non-finite, and `run_chains(log_prob, key, q0s, n_warmup, n_samples, ...)`
-as a `jax.vmap` over `adaptive_hmc` with one key per chain. The `jax.jit` decorator is
-already on the stub, with `log_prob` and the integer arguments static: the integers fix
-loop lengths and array shapes, and a static `log_prob` lets the compiled program be
-reused. A second call with the same `log_prob` object skips compilation, which on a
-small model is most of the cost of a run; a lambda written inline in each call is a new
-object and compiles again, so bind it to a name once.
+as a `jax.jit` of `jax.vmap` over `adaptive_hmc` with one key per chain.
 
 Sanity check: `run_chains` on the centred uplift model from four zero starts with
 1 000 warm-up and 1 000 draws should report well over a hundred divergences; the non-centred
