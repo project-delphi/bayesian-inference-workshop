@@ -1,0 +1,13 @@
+.venv/
+site/_site/
+site/.quarto/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+notebooks/*.ipynb
+*.png
+!site/**/*.png
+*.egg-info/
+site/figures/_cache/
+.DS_Store
