@@ -25,6 +25,8 @@ OVERVIEW_OPENER = "**Why this module exists.**"
 STEP_OPENER = "**What this computes.**"
 STEP_HEADING = re.compile(r"^### Step \d+ — \S")
 ANY_STEP_HEADING = re.compile(r"^#+\s*Step\b")  # "## Steps" is the section, not a step
+OVERVIEW_HEADING = re.compile(r"^## Overview\b")
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 
 
 def _next_paragraph(lines: list[str], i: int) -> str:
@@ -37,13 +39,18 @@ def template_errors(src: pathlib.Path) -> list[str]:
     rel = src.relative_to(ROOT)
     lines = src.read_text().splitlines()
     errors = []
-    in_fence = False
+    fence = ""  # the opening run of backticks or tildes while inside a code block
     for i, line in enumerate(lines):
-        if line.lstrip().startswith("```"):
-            in_fence = not in_fence
-        if in_fence:
+        m = FENCE.match(line)
+        if fence:
+            # Closes on the same character, at least as long, with no info string.
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not m.group(2).strip():
+                fence = ""
             continue
-        if line.strip() == "## Overview" and not _next_paragraph(lines, i).startswith(OVERVIEW_OPENER):
+        if m:
+            fence = m.group(1)
+            continue
+        if OVERVIEW_HEADING.match(line) and not _next_paragraph(lines, i).startswith(OVERVIEW_OPENER):
             errors.append(f"{rel}:{i + 1}: Overview does not open with {OVERVIEW_OPENER}")
         if ANY_STEP_HEADING.match(line):
             if not STEP_HEADING.match(line):

@@ -13,8 +13,10 @@ guaranteed identical.
 
 Function extents come from the `ast` module, not from indentation, so a body that
 contains a multi-line string or a comment at a shallower indent is still removed
-whole. A marker anywhere other than the first line of a function body is an error:
-the code after it would otherwise be copied into the starter.
+whole. Markers are read from comment tokens only, so the convention can be quoted in a
+docstring. A marker anywhere other than the first line of a function body is an error:
+the code after it would otherwise be copied into the starter. So is a solution module
+without a docstring, since that docstring is the starter file's only header.
 
 Usage:
     python scripts/make_starter.py            # all solution modules
@@ -23,9 +25,11 @@ Usage:
 from __future__ import annotations
 
 import ast
+import io
 import pathlib
 import re
 import sys
+import tokenize
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MARK = re.compile(r"^(\s*)# \[m(\w+) step (\d+)\]\s*$")
@@ -55,8 +59,13 @@ def _body_end(lines: list[str], node: ast.FunctionDef | ast.AsyncFunctionDef) ->
 
 def stub(src: str, name: str = "<source>") -> str:
     lines = src.splitlines(keepends=True)
+    tree = ast.parse(src)
+    if ast.get_docstring(tree) is None:
+        raise ValueError(f"{name}: no module docstring; the starter copies it as the file's only header")
+    tokens = tokenize.generate_tokens(io.StringIO(src).readline)
+    markers = {tok.start[0] - 1 for tok in tokens if tok.type == tokenize.COMMENT and MARK.match(lines[tok.start[0] - 1])}
     cuts: list[tuple[int, int, str]] = []  # (first line, end line exclusive, replacement), 0-based
-    for node in ast.walk(ast.parse(src)):
+    for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         doc = _has_docstring(node)
@@ -66,7 +75,7 @@ def stub(src: str, name: str = "<source>") -> str:
         # Only comments, blank lines and (without a docstring) the signature lie between
         # the end of the docstring, or the def line, and the first statement.
         start = node.body[0].end_lineno if doc else node.lineno
-        marker = next((i for i in range(start, code[0].lineno - 1) if MARK.match(lines[i])), None)
+        marker = next((i for i in range(start, code[0].lineno - 1) if i in markers), None)
         if marker is None:
             continue
         indent, mod, step = MARK.match(lines[marker]).groups()
@@ -76,7 +85,7 @@ def stub(src: str, name: str = "<source>") -> str:
     for c in sorted(cuts):
         if not kept or c[0] >= kept[-1][1]:
             kept.append(c)
-    stray = [i + 1 for i, line in enumerate(lines) if MARK.match(line) and not any(a <= i < b for a, b, _ in kept)]
+    stray = [i + 1 for i in sorted(markers) if not any(a <= i < b for a, b, _ in kept)]
     if stray:
         raise ValueError(f"{name}: step markers not at the start of a function body, lines {stray}")
     out: list[str] = []
