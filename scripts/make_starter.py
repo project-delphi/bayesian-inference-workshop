@@ -36,6 +36,23 @@ def _has_docstring(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     return isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str)
 
 
+def _body_end(lines: list[str], node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+    """End (exclusive, 0-based) of the function's body: its last statement plus any
+    comment lines after it that are indented deeper than the def. Blank lines are
+    taken only when such a comment follows them."""
+    end = node.end_lineno
+    i = end
+    while i < len(lines):
+        if not lines[i].strip():
+            i += 1
+            continue
+        if lines[i].lstrip().startswith("#") and len(lines[i]) - len(lines[i].lstrip()) > node.col_offset:
+            end = i = i + 1
+            continue
+        break
+    return end
+
+
 def stub(src: str, name: str = "<source>") -> str:
     lines = src.splitlines(keepends=True)
     cuts: list[tuple[int, int, str]] = []  # (first line, end line exclusive, replacement), 0-based
@@ -53,7 +70,7 @@ def stub(src: str, name: str = "<source>") -> str:
         if marker is None:
             continue
         indent, mod, step = MARK.match(lines[marker]).groups()
-        cuts.append((marker, node.end_lineno, f"{indent}raise NotImplementedError  # Module {mod.lstrip('0') or '0'}, Step {step}\n"))
+        cuts.append((marker, _body_end(lines, node), f"{indent}raise NotImplementedError  # Module {mod.lstrip('0') or '0'}, Step {step}\n"))
     # A marked function nested inside a stubbed body goes with it.
     kept: list[tuple[int, int, str]] = []
     for c in sorted(cuts):

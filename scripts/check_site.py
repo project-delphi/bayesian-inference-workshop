@@ -24,6 +24,7 @@ REQUIRED = ["Overview", "Learning objectives", "Background", "Steps", "Checkpoin
 OVERVIEW_OPENER = "**Why this module exists.**"
 STEP_OPENER = "**What this computes.**"
 STEP_HEADING = re.compile(r"^### Step \d+ — \S")
+ANY_STEP_HEADING = re.compile(r"^#+\s*Step\b")  # "## Steps" is the section, not a step
 
 
 def _next_paragraph(lines: list[str], i: int) -> str:
@@ -36,16 +37,20 @@ def template_errors(src: pathlib.Path) -> list[str]:
     rel = src.relative_to(ROOT)
     lines = src.read_text().splitlines()
     errors = []
+    in_fence = False
     for i, line in enumerate(lines):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+        if in_fence:
+            continue
         if line.strip() == "## Overview" and not _next_paragraph(lines, i).startswith(OVERVIEW_OPENER):
             errors.append(f"{rel}:{i + 1}: Overview does not open with {OVERVIEW_OPENER}")
-        if line.startswith("### Step"):
+        if ANY_STEP_HEADING.match(line):
             if not STEP_HEADING.match(line):
                 errors.append(f"{rel}:{i + 1}: step heading is not '### Step N — title'")
             if not _next_paragraph(lines, i).startswith(STEP_OPENER):
                 errors.append(f"{rel}:{i + 1}: step does not open with {STEP_OPENER}")
-    if "## Overview" not in lines:
-        errors.append(f"{rel}: no Overview section")
+    # A missing Overview section is reported by the rendered-HTML section check.
     return errors
 
 

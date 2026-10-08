@@ -374,7 +374,7 @@ wrote in Module 7: import `churn_log_joint` and `laplace` from
 Sanity check: on the churn posterior, `max_abs_corr` should be about 0.42 and every
 entry of `sd_ratio` below 1.
 
-![HMC against mean-field VI on the churn posterior. Left: posterior standard deviation per coefficient; VI is below HMC on every one, most on the two correlated coordinates. Right: HMC draws of the intercept and the enterprise coefficient with the VI two-sigma ellipse, which is axis-aligned and cannot represent the correlation of $-0.46$ in this run.](../figures/m11_hmc_vs_vi.png)
+![HMC against mean-field VI on the churn posterior. Left: posterior standard deviation per coefficient; VI is below HMC on every one, most on the two correlated coordinates. Right: HMC draws of the intercept and the enterprise coefficient with the VI two-sigma ellipse, which is axis-aligned and cannot represent the correlation. This figure's run (other seeds) estimates it at $-0.46$; the run in the table above gives $-0.42$, and the gap is Monte Carlo error.](../figures/m11_hmc_vs_vi.png)
 
 ```bash
 pytest tests/m11 -k step4
