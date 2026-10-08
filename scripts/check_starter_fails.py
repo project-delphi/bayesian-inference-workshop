@@ -5,11 +5,13 @@ Usage:
     python scripts/check_starter_fails.py            # all modules
     python scripts/check_starter_fails.py m03 m04    # selected modules
 
-Exit status 0 means the starter is honest: nothing passes before the participant has
-written code. Any passing test is printed and the script exits 1.
+Exit status 0 means the starter is honest: pytest ran, collected tests, and every one
+failed or errored before the participant has written code. Any passing test is printed
+and the script exits 1; so does a run that collected nothing or did not complete.
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import subprocess
 import sys
@@ -25,11 +27,16 @@ def main(argv: list[str]) -> int:
     else:
         targets = sorted(p for p in tests_dir.iterdir() if p.is_dir() and p.name.startswith("m") and p.name not in EXEMPT)
     targets = [t for t in targets if t.name not in EXEMPT]
+    missing = [t.name for t in targets if not t.is_dir()]
+    if missing:
+        print(f"No such test directory: {', '.join(missing)}")
+        return 1
     if not targets:
         print("No module test directories found.")
-        return 0
+        return 1
     cmd = [sys.executable, "-m", "pytest", "-rA", "-p", "no:cacheprovider", "-q", *map(str, targets)]
-    out = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+    env = {k: v for k, v in os.environ.items() if k != "WORKSHOP_IMPL"}
+    out = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, env=env)
     passed = [line for line in out.stdout.splitlines() if line.startswith("PASSED ")]
     if passed:
         print("These tests PASS against the starter code; they are not testing anything:")
@@ -37,6 +44,13 @@ def main(argv: list[str]) -> int:
             print("  ", line)
         return 1
     n_failed = sum(1 for l in out.stdout.splitlines() if l.startswith(("FAILED ", "ERROR ")))
+    # pytest exits 1 when tests ran and some failed. Anything else (0: all passed,
+    # 2: interrupted or collection error, 3: internal error, 4: usage error, 5: nothing
+    # collected) means the run did not demonstrate that the starter fails.
+    if out.returncode != 1 or n_failed == 0:
+        print(f"pytest exited with status {out.returncode} after {n_failed} failures; the starter was not checked.")
+        print("\n".join((out.stdout + out.stderr).strip().splitlines()[-15:]))
+        return 1
     print(f"OK: no test passes against the starter ({n_failed} failed or errored, as intended).")
     return 0
 

@@ -32,7 +32,10 @@ class DualAveragingState(NamedTuple):
 
 
 def dual_averaging_init(step_size0: float) -> DualAveragingState:
-    """t = 0, h_bar = 0, log_step = log(step_size0), log_step_avg = 0, mu = log(10 step_size0)."""
+    """t = 0, h_bar = 0, log_step = log(step_size0), log_step_avg = log(step_size0),
+    mu = log(10 step_size0). The first update gives the old average weight zero, so the
+    initial log_step_avg only matters when no update follows: then the final step size
+    is step_size0 rather than 1."""
     raise NotImplementedError  # Module 10, Step 1
 
 

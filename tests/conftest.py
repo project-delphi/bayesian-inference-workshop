@@ -32,7 +32,10 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
-    use_solutions = config.getoption("--solutions") or os.environ.get("WORKSHOP_IMPL") == "solutions"
+    # Only the flag selects solutions/. WORKSHOP_IMPL is the notebooks' switch and is
+    # deliberately ignored here, so a shell that exported it for Jupyter cannot make
+    # `make test` or check_starter_fails.py silently grade the reference code.
+    use_solutions = config.getoption("--solutions")
     if use_solutions:
         import solutions
 
@@ -46,4 +49,7 @@ def pytest_configure(config):
 
 
 def pytest_report_header(config):
-    return f"workshop implementation: {config.workshop_impl}"
+    header = f"workshop implementation: {config.workshop_impl}"
+    if os.environ.get("WORKSHOP_IMPL") and not config.getoption("--solutions"):
+        header += " (WORKSHOP_IMPL is set but ignored by pytest; use --solutions)"
+    return header

@@ -32,12 +32,15 @@ class DualAveragingState(NamedTuple):
 
 
 def dual_averaging_init(step_size0: float) -> DualAveragingState:
-    """t = 0, h_bar = 0, log_step = log(step_size0), log_step_avg = 0, mu = log(10 step_size0)."""
+    """t = 0, h_bar = 0, log_step = log(step_size0), log_step_avg = log(step_size0),
+    mu = log(10 step_size0). The first update gives the old average weight zero, so the
+    initial log_step_avg only matters when no update follows: then the final step size
+    is step_size0 rather than 1."""
     # [m10 step 1]
     s0 = jnp.asarray(step_size0, dtype=float)
     return DualAveragingState(
         log_step=jnp.log(s0),
-        log_step_avg=jnp.asarray(0.0),
+        log_step_avg=jnp.log(s0),
         h_bar=jnp.asarray(0.0),
         t=jnp.asarray(0.0),
         mu=jnp.log(10.0 * s0),

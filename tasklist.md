@@ -94,6 +94,7 @@ tests and notebook exist, `pytest tests/mXX --solutions` passes, and
 - [x] `site/widgets/` (5 widgets, EMBED.md, _test.html); `_quarto.yml` resources; `make figures`; AGENTS/PLAN/README updated
 - [x] `scripts/make_figures.py` produces every file referenced from the pages (40 PNG, 6 GIF, deterministic, 127 s from scratch); `_MANIFEST.md` written; m11 page numbers reconciled to the regenerated runs (153 divergences, ESS 59, R-hat 1.07)
 - [x] Full suite (--solutions) passes; check-starter 234 fail as intended; `make build-site` OK (28 pages, all links/anchors)
+- [x] PR #1 review fixes: check_starter_fails.py now fails on a missing directory, an empty collection or a non-1 pytest status; tests/conftest.py ignores WORKSHOP_IMPL (flag only); m13 `unconstrained_log_density` reshapes before the log-Jacobian (+ regression test, m13 now 9 tests); m10 `dual_averaging_init` starts log_step_avg at log(step_size0). Suite 243 pass, starter 235 fail
 - [x] Browser walk of m02b, m04, m09, m11, m15b on the rendered site: all five widgets mount and animate in place, prediction callouts collapse, GIFs play, console free of errors on every page
 - [x] Facilitator guide updated (figures and widgets on pages; prediction prompts; m04 Step 4 optional; m11 funnel on the page; Jacobian checker)
 

@@ -88,8 +88,8 @@ def unconstrained_log_density(model: Callable, spec: ParamSpec, z: Array, *args,
     # [m13 step 2]
     values = unflatten(z, spec)
     lp, _ = log_density(model, values, *args, **kwargs)
-    for sl, bij in zip(spec.slices, spec.bijectors):
-        lp = lp + bij.log_det_jacobian(z[sl])
+    for shape, sl, bij in zip(spec.shapes, spec.slices, spec.bijectors):
+        lp = lp + bij.log_det_jacobian(z[sl].reshape(shape))
     return lp
 
 

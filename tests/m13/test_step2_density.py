@@ -29,3 +29,24 @@ def test_step2_jacobian_term_is_present():
     with_j = unconstrained_log_density(uplift_model, spec, z, Y, SIGMA)
     without_j = log_density(uplift_model, unflatten(z, spec), Y, SIGMA)[0]
     np.testing.assert_allclose(with_j - without_j, z[1], rtol=1e-12)
+
+
+def test_step2_multidimensional_site_with_vector_bijector():
+    # A (2, 3) site whose support bijector has a length-3 scale: the log-Jacobian must be
+    # evaluated on the site's shape, not on the flat slice.
+    from workshop.m12_handlers import Uniform, log_density, sample
+    from workshop.m13_ppl_inference import unflatten
+
+    high = jnp.array([1.0, 2.0, 4.0])
+
+    def model():
+        sample("w", Uniform(jnp.zeros(3), high), sample_shape=(2,))
+
+    spec = unconstrain(model)
+    z = jax.random.normal(key(44), (6,))
+    got = unconstrained_log_density(model, spec, z)
+    zz = z.reshape(2, 3)
+    expected = log_density(model, unflatten(z, spec))[0] + jnp.sum(
+        jax.nn.log_sigmoid(zz) + jax.nn.log_sigmoid(-zz) + jnp.log(high)
+    )
+    np.testing.assert_allclose(got, expected, rtol=1e-12)

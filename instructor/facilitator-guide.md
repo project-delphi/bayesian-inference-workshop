@@ -49,7 +49,7 @@ laptop CPU, measured during the build. Participant code is typically within 2x o
 | m10 Adaptation | 10 | 5 s | 3.0 h |
 | m11 Diagnostics and comparison | 12 | 11 s | 3.0 h |
 | m12 Traces and effect handlers | 17 | 4 s | 3.0 h |
-| m13 Inference through the PPL | 8 | 7 s | 2.5 h |
+| m13 Inference through the PPL | 9 | 7 s | 2.5 h |
 | m14 Amortised VI, a VAE | 10 | 10 s | 3.0 h |
 | m15a Normalising flows | 17 | 21 s | 7.0 h |
 | m15b Score-based diffusion | 13 | 22 s | 7.0 h |

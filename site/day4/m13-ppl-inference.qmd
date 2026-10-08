@@ -324,7 +324,9 @@ $\log\tau$ coordinate, for any `z`.
 pytest tests/m13 -k step2
 ```
 
-You should see 2 passed: agreement with Module 9's target up to a constant with exact
+You should see 3 passed. The third evaluates a $(2, 3)$ Uniform site whose bijector has a
+length-3 scale, so the log-Jacobian must be computed on the site's shape, not on the flat
+slice. The first two check agreement with Module 9's target up to a constant with exact
 gradients under `jax.jit`, and that the difference from the plain `log_density` is the
 Jacobian term $z_{\log\tau}$.
 
@@ -397,7 +399,7 @@ four noise standard deviations and the predictive spread matches the noise level
 ```bash
 pytest tests/m13
 ```
-8 tests pass in about 10 seconds. Module 14 and Capstone Track C import this file.
+9 tests pass in about 10 seconds. Module 14 and Capstone Track C import this file.
 Before moving on, be able to write the change-of-variables correction for
 $\tau = e^z$ from scratch and say what the posterior would do if you dropped it.
 
