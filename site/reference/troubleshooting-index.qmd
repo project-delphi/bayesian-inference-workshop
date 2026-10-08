@@ -52,6 +52,7 @@ them.
 | Unconstrained density off by exactly $z_{\log\tau}$ | Jacobian sum missing or double counted | [13](../day4/m13-ppl-inference.qmd) |
 | SVI posterior for $\sigma$ has mean near 2 and SD above 1 | not converged; the enzyme ELBO has a long plateau, use 6 000+ steps | [13](../day4/m13-ppl-inference.qmd) |
 | `predictive` returns the data itself | observed site's value read instead of sampling its distribution | [13](../day4/m13-ppl-inference.qmd) |
+| `predictive` returns one value per draw for a vector observation | sampled at the distribution's batch shape; broadcast its parameters to the observed value's shape first | [13](../day4/m13-ppl-inference.qmd) |
 | VAE ELBO flat near the baseline | Adam written for descent, or learning rate too small | [14](../day4/m14-vae.qmd) |
 | KL term goes to zero and reconstructions are the mean cell | posterior collapse; warm up the KL weight | [14](../day4/m14-vae.qmd) |
 | Reconstruction accuracy near 0.6 | decoder evaluated at a prior draw, not the guide's $z$ | [14](../day4/m14-vae.qmd) |
@@ -78,6 +79,7 @@ them.
 | `jnp.nonzero` shape error | missing `size=` | [2](../day0/m02-diagnostic.qmd) |
 | Categorical shape mismatch | forgot to drop the last one-hot entry | [3](../day1/m03-expfam-core.qmd) |
 | Pytree structure mismatch | list vs tuple containers | [1](../day0/m01-jax-warmup.qmd) |
+| `cumulative_logsumexp` is NaN everywhere after a leading $-\infty$ | running maximum still $-\infty$, so $m - m_{\text{new}}$ is NaN; rescale by a finite reference | [1](../day0/m01-jax-warmup.qmd) |
 | `lax.scan` dtype mismatch at a window end | `jnp.where` branches with Python floats vs arrays in named-tuple states | [10](../day3/m10-adaptation.qmd) |
 | Schedule window ends off by one | `window_end[i]` marks the last iteration of a window | [10](../day3/m10-adaptation.qmd) |
 | Every later test fails with strange values after one failure | stale handler left on the stack; `__exit__` must pop unconditionally | [12](../day4/m12-effect-handlers.qmd) |

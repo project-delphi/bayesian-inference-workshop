@@ -118,7 +118,12 @@ def predictive(model: Callable, posterior_samples: dict[str, Array], key: Array,
     """For each posterior draw (leading axis of every entry), run the model with its
     latent sites substituted, then draw fresh values at the observed sites from their
     distributions evaluated at that draw. Returns a dict of observed-site samples with
-    the same leading axis. Uses jax.vmap over draws with one key per draw."""
+    the same leading axis. Uses jax.vmap over draws with one key per draw.
+
+    Each fresh value must have the shape of the observed value broadcast with the
+    distribution's batch shape: a scalar Normal observing a length-7 vector gives 7
+    replicates per draw. Every distribution here is constructed from its `_params` in
+    order, so broadcast those to the target shape and rebuild it before sampling."""
     raise NotImplementedError  # Module 13, Step 5
 
 

@@ -100,6 +100,8 @@ tests and notebook exist, `pytest tests/mXX --solutions` passes, and
 
 - [x] Two follow-up GIFs (user request 2026-10-08): m11_funnel_chains.gif (chains running, divergences accumulating) on m11; m14_training.gif (reconstructions and bound during training) on m14
 
+- [x] PR #1 third review fixes: m01 `cumulative_logsumexp` no longer NaNs on leading -inf; m13 `predictive` draws observed sites at the observation's shape; `data.enzyme_kinetics` rejects n not a positive multiple of 8. Regression tests added. Fourth review pass: predictive broadcasts size-1 batch dimensions, docstrings state the new requirements, two troubleshooting rows, broader data-helper tests (m00 15, m01 19, m13 11 tests; suite 253)
+
 ## Notes for resumption
 - Starter files are GENERATED: edit solutions/, then `python scripts/make_starter.py <module>`.
 - site/reference/troubleshooting-index.md and site/reference/references.md exist; extend per day.

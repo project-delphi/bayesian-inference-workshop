@@ -380,7 +380,11 @@ datasets whose spread is the predictive distribution.
 
 Implement `predictive(model, posterior_samples, key, *args)`: detect observed sites from
 a probe trace, then `vmap` over draws, substituting latents and sampling each observed
-site's distribution with a per-draw, per-site key.
+site's distribution with a per-draw, per-site key. Draw at the observed value's shape,
+not the distribution's batch shape: `Normal(mu, 0.5)` with scalar `mu` observing a
+length-24 vector must give 24 replicates. Broadcast the distribution's `_params` to
+`jnp.broadcast_shapes(value_shape, fn.batch_shape)` and rebuild it with
+`type(fn)(*params)` before sampling.
 
 Sanity check: `predictive(enzyme_model, flat_samples, key, S, V)["v"]` has shape
 `[n_draws, 24]`, its mean over draws at the three $s = 0.25$ points is about $1.0$, and
@@ -390,8 +394,12 @@ its standard deviation over draws averages about $0.56$.
 pytest tests/m13 -k step5
 ```
 
-You should see 1 passed: the predictive mean tracks the 24 observed velocities within
-four noise standard deviations and the predictive spread matches the noise level.
+You should see 3 passed: the predictive mean tracks the 24 observed velocities within
+four noise standard deviations and the predictive spread matches the noise level; a
+scalar `Normal` observing a vector yields one fresh replicate per observed element; and
+a batch shape with a size-1 dimension is broadcast against the observation. Draw
+each observed site at the shape of its observed value, not at the distribution's batch
+shape.
 
 ## Checkpoint
 
@@ -399,7 +407,7 @@ four noise standard deviations and the predictive spread matches the noise level
 ```bash
 pytest tests/m13
 ```
-9 tests pass in about 10 seconds. Module 14 and Capstone Track C import this file.
+11 tests pass in about 10 seconds. Module 14 and Capstone Track C import this file.
 Before moving on, be able to write the change-of-variables correction for
 $\tau = e^z$ from scratch and say what the posterior would do if you dropped it.
 

@@ -110,14 +110,19 @@ def ar1_simulate(key: Array, phi: float, sigma: float, n: int, x0: float = 0.0) 
 
 def cumulative_logsumexp(a: Array) -> Array:
     """out[t] = logsumexp(a[:t+1]) for a 1-D array, computed in one lax.scan pass using
-    the running maximum (no O(n^2) work, no overflow)."""
+    the running maximum (no O(n^2) work, no overflow). Must return -inf, not NaN, while
+    every entry so far is -inf, and the outputs after that must be unaffected."""
     # [m01 step 5]
 
     def body(carry, a_t):
         m, s = carry  # running max and sum of exp(a - m)
         m_new = jnp.maximum(m, a_t)
-        s_new = s * jnp.exp(m - m_new) + jnp.exp(a_t - m_new)
-        return (m_new, s_new), jnp.log(s_new) + m_new
+        # While every input so far is -inf, m_new is -inf and m - m_new would be NaN.
+        # Rescale by a finite reference instead; carry the true maximum so later
+        # very negative inputs are not underflowed against a made-up reference.
+        ref = jnp.where(jnp.isfinite(m_new), m_new, 0.0)
+        s_new = s * jnp.exp(m - ref) + jnp.exp(a_t - ref)
+        return (m_new, s_new), jnp.log(s_new) + ref
 
     init = (jnp.asarray(-jnp.inf, dtype=a.dtype), jnp.asarray(0.0, dtype=a.dtype))
     _, out = lax.scan(body, init, a)

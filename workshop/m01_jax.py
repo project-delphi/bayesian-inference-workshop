@@ -76,7 +76,8 @@ def ar1_simulate(key: Array, phi: float, sigma: float, n: int, x0: float = 0.0) 
 
 def cumulative_logsumexp(a: Array) -> Array:
     """out[t] = logsumexp(a[:t+1]) for a 1-D array, computed in one lax.scan pass using
-    the running maximum (no O(n^2) work, no overflow)."""
+    the running maximum (no O(n^2) work, no overflow). Must return -inf, not NaN, while
+    every entry so far is -inf, and the outputs after that must be unaffected."""
     raise NotImplementedError  # Module 1, Step 5
 
 

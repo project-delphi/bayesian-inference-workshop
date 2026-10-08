@@ -114,8 +114,10 @@ You should see `0.11.2 [CpuDevice(id=0)]`.
 pytest tests/m00
 ```
 
-You should see four passing tests. These check 64-bit mode, package versions, a CPU
-device and that `workshop` and `solutions` import.
+You should see fifteen passing tests. Four check 64-bit mode, package versions, a CPU
+device and that `workshop` and `solutions` import. Four check the provided
+change-of-variables checker, `workshop/jacobian_check.py`, which Module 2b introduces.
+Seven check the provided dataset helpers in `workshop/data.py`.
 
 ### Step 3 — Run a module against the starter and the solutions
 

@@ -286,8 +286,11 @@ Sanity check: `ar1_simulate(key, 0.8, 1.0, 200_000)[1000:].var()` is close to $2
 pytest tests/m01 -k step5
 ```
 
-You should see 3 passed. The AR(1) test compares against a Python loop over the same
-noise, so the order in which you consume the key matters.
+You should see 4 passed. The AR(1) test compares against a Python loop over the same
+noise, so the order in which you consume the key matters. One test starts the
+cumulative log-sum-exp with $-\infty$ entries: while the running maximum is $-\infty$,
+$m - m_{\text{new}}$ is $-\infty - (-\infty)$, which is NaN, so rescale by a finite
+reference as `logsumexp` in Step 1 does.
 
 ### Step 6 — Pytrees
 
@@ -314,7 +317,7 @@ You should see 3 passed.
 ```bash
 pytest tests/m01
 ```
-18 tests pass. Commit or copy your `workshop/m01_jax.py`; Modules 2b and 3 onward
+19 tests pass. Commit or copy your `workshop/m01_jax.py`; Modules 2b and 3 onward
 assume these idioms without comment. Before moving on, say in one sentence each why
 inference code needs `grad`, `vmap`, `scan` and explicit keys.
 :::

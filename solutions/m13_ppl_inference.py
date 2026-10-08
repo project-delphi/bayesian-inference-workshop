@@ -170,15 +170,26 @@ def predictive(model: Callable, posterior_samples: dict[str, Array], key: Array,
     """For each posterior draw (leading axis of every entry), run the model with its
     latent sites substituted, then draw fresh values at the observed sites from their
     distributions evaluated at that draw. Returns a dict of observed-site samples with
-    the same leading axis. Uses jax.vmap over draws with one key per draw."""
+    the same leading axis. Uses jax.vmap over draws with one key per draw.
+
+    Each fresh value must have the shape of the observed value broadcast with the
+    distribution's batch shape: a scalar Normal observing a length-7 vector gives 7
+    replicates per draw. Every distribution here is constructed from its `_params` in
+    order, so broadcast those to the target shape and rebuild it before sampling."""
     # [m13 step 5]
     n = jax.tree_util.tree_leaves(posterior_samples)[0].shape[0]
     probe = trace(seed(model, jax.random.key(0))).get_trace(*args, **kwargs)
     observed = [name for name, s in probe.items() if s["type"] == "sample" and s["is_observed"]]
 
+    def draw_like_observation(site, k):
+        fn = site["fn"]
+        target = jnp.broadcast_shapes(jnp.shape(site["value"]), fn.batch_shape)
+        expanded = type(fn)(*[jnp.broadcast_to(p, target) for p in fn._params])
+        return expanded.sample(k)
+
     def one(k, draw):
         tr = trace(substitute(model, draw)).get_trace(*args, **kwargs)
-        return {name: tr[name]["fn"].sample(jax.random.fold_in(k, i)) for i, name in enumerate(observed)}
+        return {name: draw_like_observation(tr[name], jax.random.fold_in(k, i)) for i, name in enumerate(observed)}
 
     return jax.vmap(one)(jax.random.split(key, n), posterior_samples)
 

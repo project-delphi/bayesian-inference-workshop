@@ -35,8 +35,8 @@ laptop CPU, measured during the build. Participant code is typically within 2x o
 
 | Module | Tests | Suite time | Module time |
 |---|---|---|---|
-| m00 Setup | 4 | 1 s | 0.5 h |
-| m01 JAX warm-up | 18 | 5 s | 1.5 h |
+| m00 Setup | 15 | 1 s | 0.5 h |
+| m01 JAX warm-up | 19 | 5 s | 1.5 h |
 | m02 Diagnostic | 11 | 2 s | 1.0 h |
 | m02b Bayesian inference from first principles | 14 | 7 s | 3.0 h |
 | m03 Exponential-family core | 19 | 5 s | 3.0 h |
@@ -49,7 +49,7 @@ laptop CPU, measured during the build. Participant code is typically within 2x o
 | m10 Adaptation | 10 | 5 s | 3.0 h |
 | m11 Diagnostics and comparison | 12 | 11 s | 3.0 h |
 | m12 Traces and effect handlers | 17 | 4 s | 3.0 h |
-| m13 Inference through the PPL | 9 | 7 s | 2.5 h |
+| m13 Inference through the PPL | 11 | 7 s | 2.5 h |
 | m14 Amortised VI, a VAE | 10 | 10 s | 3.0 h |
 | m15a Normalising flows | 17 | 21 s | 7.0 h |
 | m15b Score-based diffusion | 13 | 22 s | 7.0 h |

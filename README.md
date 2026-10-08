@@ -18,7 +18,7 @@ on macOS; tested with Quarto 1.6.40). CPU only is fine.
 ```bash
 make setup                 # creates .venv and installs pinned dependencies
 source .venv/bin/activate
-pytest tests/m00           # environment check: 4 passed
+pytest tests/m00           # environment and provided helpers: 15 passed
 make serve                 # site at http://127.0.0.1:8000
 ```
 

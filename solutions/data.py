@@ -158,9 +158,12 @@ def regional_uplift(seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
 # Molecular biology: Michaelis-Menten kinetics
 # --------------------------------------------------------------------------------------
 def enzyme_kinetics(seed: int = 0, n: int = 24) -> tuple[np.ndarray, np.ndarray, float, float, float]:
-    """Initial reaction velocities at n substrate concentrations.
+    """Initial reaction velocities at n substrate concentrations: eight substrate
+    levels, each measured n // 8 times, so n must be a positive multiple of 8.
 
     v = Vmax * s / (Km + s) + noise. Returns (s, v, Vmax, Km, noise_sd)."""
+    if n < 8 or n % 8:
+        raise ValueError(f"n must be a positive multiple of 8 (eight substrate levels), got {n}")
     rng = _rng(seed)
     vmax, km, sd = 12.0, 2.5, 0.6
     s = np.repeat(np.array([0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0]), n // 8)

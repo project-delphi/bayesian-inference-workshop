@@ -38,3 +38,16 @@ def test_step5_cumulative_logsumexp():
     assert out.shape == a.shape
     assert bool(jnp.all(jnp.isfinite(out)))
     np.testing.assert_allclose(out, ref, rtol=1e-12)
+
+
+def test_step5_cumulative_logsumexp_leading_neg_inf():
+    # Zero-probability items first: the running maximum starts at -inf and must not
+    # turn every later output into NaN.
+    from workshop.m01_jax import cumulative_logsumexp
+
+    out = cumulative_logsumexp(jnp.array([-jnp.inf, -jnp.inf, 0.0, 1.0, -1e4]))
+    expected = np.array([-np.inf, -np.inf, 0.0, np.logaddexp(0.0, 1.0), np.logaddexp(0.0, 1.0)])
+    np.testing.assert_allclose(np.asarray(out), expected, rtol=1e-12)
+    out2 = np.asarray(cumulative_logsumexp(jnp.array([-jnp.inf, -1e4])))
+    assert np.isneginf(out2[0])
+    np.testing.assert_allclose(out2[1], -1e4, rtol=1e-12)
