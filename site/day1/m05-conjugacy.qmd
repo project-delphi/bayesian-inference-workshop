@@ -1,0 +1,601 @@
+---
+title: "Module 5 — Conjugacy as natural-parameter arithmetic"
+---
+
+## Overview
+
+**Why this module exists.** [Module 2b](../day0/m02b-foundations.qmd) showed that
+Bayes' rule is easy to write and usually impossible to compute, because the evidence
+integral has no closed form. This module is about the one situation where it does: when
+the prior and the likelihood come from matching exponential families, the posterior is
+in the prior's family, the evidence is a ratio of two normalisers, and the whole of
+inference is addition of vectors. That is worth a module for two reasons. It is the
+exact case against which every approximation on Days 2 and 3 is tested, and its
+update rule reappears, almost unchanged, as the inner step of coordinate-ascent
+variational inference on Day 2.
+
+**What you'll build:** in `workshop/m05_conjugacy.py`, a generic conjugate-prior class
+whose posterior update is one line of vector addition for every family, with
+Beta–Bernoulli and Dirichlet–Categorical as instances; a Normal–Gamma model for
+replicate measurements; the marginal likelihood and posterior predictive as ratios of
+normalisers; a streaming update with `lax.scan`; and a Monte Carlo decision rule for an
+A/B test. Everything is validated against quadrature.
+
+**Estimated time:** 3 hours (about 1 hour reading, 2 hours building).
+
+**Prerequisites:** [Module 3](m03-expfam-core.qmd), [Module 4](m04-kl-bregman.qmd),
+[Module 2b](../day0/m02b-foundations.qmd). Terms are defined in the
+[glossary](../reference/glossary.qmd).
+
+**Datasets** (from `workshop/data.py`): `ab_test_conversions` (two landing-page variants,
+400 and 380 binary conversions), `channel_attribution` (last-touch channel for 1 200
+conversions across six channels), `qpcr_log_expression` (twelve log fold-change
+replicates of one gene).
+
+## Learning objectives
+
+By the end of this module you can:
+
+1. Derive the Beta posterior for a Bernoulli likelihood by hand, then show that the same
+   computation in natural parameters is vector addition, and say what the prior's
+   parameters mean as pseudo-observations.
+2. Write the conjugate prior of any exponential-family likelihood in the form
+   $\exp(\chi^\top\eta - \nu A(\eta) - B(\chi, \nu))$ and read off the posterior update
+   $\chi' = \chi + \sum_i t(x_i)$, $\nu' = \nu + n$.
+3. Derive the marginal likelihood and posterior predictive from $B$ alone, explain why
+   only $B$ is family specific, and compute both for the A/B test.
+4. Map textbook hyperparameters (Beta $a, b$; Dirichlet $\alpha$) to $(\chi, \nu)$ and
+   back, including the Jacobian that shifts the exponents by one.
+5. Derive the Normal–Gamma posterior by completing the square and explain shrinkage on
+   the qPCR data.
+
+## Background
+
+### The problem in plain terms
+
+You have a model: a prior $p(\theta)$ and a likelihood $p(x\mid\theta)$. You observe
+data and want the posterior $p(\theta\mid x) \propto p(x\mid\theta)\,p(\theta)$. The
+proportionality hides the evidence $p(x) = \int p(x\mid\theta)p(\theta)\dd\theta$, and
+for a general prior and likelihood that integral has to be done numerically, which is
+the whole difficulty of the subject.
+
+Now ask a narrower question. Is there a choice of prior for which the product
+$p(x\mid\theta)p(\theta)$ is, as a function of $\theta$, a density you already know how
+to normalise? If so, the posterior is that density, the evidence is whatever constant
+makes it normalise, and no integral is ever computed. A prior with this property is
+called **conjugate** to the likelihood. Exponential families always have one, and this
+module builds it.
+
+### Definitions
+
+**Conjugate prior.** A family of priors $\mathcal P$ is conjugate to a likelihood if
+for every prior in $\mathcal P$ and every dataset the posterior is also in $\mathcal P$.
+The family is closed under Bayesian updating.
+
+**Hyperparameters.** The parameters of the prior, as distinct from the parameters
+$\theta$ of the likelihood. The Beta prior's $(a, b)$ are hyperparameters.
+
+**Marginal likelihood (evidence).** $p(x_{1:n}) = \int \prod_i p(x_i\mid\theta)\,p(\theta)\dd\theta$,
+the probability of the data with the unknowns averaged out.
+
+**Posterior predictive.** $p(x_{\text{new}}\mid x_{1:n}) = \int p(x_{\text{new}}\mid\theta)\,p(\theta\mid x_{1:n})\dd\theta$:
+the likelihood of a new observation, averaged over what you still do not know about
+$\theta$. In words: predict by averaging predictions, not by predicting from an average.
+
+### Bayes' rule by hand: the Beta–Bernoulli case
+
+Take $n$ conversion outcomes $x_i \in \{0, 1\}$ with $k = \sum_i x_i$ successes, and
+likelihood $p(x_{1:n}\mid p) = p^k(1-p)^{n-k}$. Choose the prior $\mathrm{Beta}(a, b)$,
+whose density is
+
+$$
+p(p) = \frac{p^{a-1}(1-p)^{b-1}}{\mathrm B(a, b)}, \qquad \mathrm B(a, b) = \frac{\Gamma(a)\Gamma(b)}{\Gamma(a+b)}.
+$$
+
+Multiply likelihood and prior and collect powers of $p$ and $1 - p$:
+
+$$
+p(x_{1:n}\mid p)\,p(p) = \frac{1}{\mathrm B(a, b)}\;p^{a + k - 1}(1-p)^{b + n - k - 1}.
+$$
+
+As a function of $p$ this is the shape of a $\mathrm{Beta}(a + k,\ b + n - k)$ density.
+The posterior is therefore that Beta, and the constant that normalises it must be
+$\mathrm B(a+k, b+n-k)$. So the evidence, the integral we were worried about, is
+
+$$
+p(x_{1:n}) = \int_0^1 p(x_{1:n}\mid p)\,p(p)\dd p = \frac{\mathrm B(a + k,\ b + n - k)}{\mathrm B(a, b)}.
+$$
+
+Nothing was integrated. We recognised a shape and looked up its normaliser. Everything
+else in this module is this trick, stated generally.
+
+The prior's parameters have a direct reading. $\mathrm{Beta}(a, b)$ acts like $a - 1$
+successes and $b - 1$ failures observed before the experiment started (or $a$ and $b$
+in the natural-parameter convention below; the offset of one is a bookkeeping detail
+treated in a moment). The posterior mean $\frac{a + k}{a + b + n}$ is a weighted average
+of the prior mean $\frac{a}{a+b}$ and the sample frequency $\frac kn$, with weights
+$a + b$ and $n$. A prior is a stock of pseudo-observations; the data outvote it as
+$n$ grows.
+
+### The same computation in natural parameters
+
+Now redo the calculation in Module 3's coordinates. The Bernoulli likelihood of one
+observation is $\exp(\eta x - A(\eta))$ with $\eta = \log\frac{p}{1-p}$ and
+$A(\eta) = \log(1 + e^\eta)$. For $n$ observations,
+
+$$
+p(x_{1:n}\mid\eta) = \exp\Big(\eta\sum_i x_i - nA(\eta)\Big) = \exp\big(\eta k - nA(\eta)\big).
+$$
+
+Here is the observation that generalises: this is a function of $\eta$ with a
+*linear* term and a *multiple of $A$*. Any prior of the form
+
+$$
+p(\eta\mid\chi, \nu) = \exp\big(\chi\eta - \nu A(\eta) - B(\chi, \nu)\big)
+$$
+
+has the same shape, so multiplying it by the likelihood just adds to the coefficients:
+
+$$
+p(\eta\mid x_{1:n}) \propto \exp\big((\chi + k)\eta - (\nu + n)A(\eta)\big).
+$$
+
+The posterior is the prior family with $\chi' = \chi + k$ and $\nu' = \nu + n$. Say it
+plainly: $\nu$ is a **pseudo-count** (how many observations the prior is worth) and
+$\chi$ is the **pseudo-sufficient-statistic** (what those pseudo-observations summed
+to). The update adds the real count to the pseudo-count and the real sufficient
+statistic to the pseudo one.
+
+For a general exponential family the likelihood of $n$ observations is
+$\prod_i h(x_i)\exp\big(\eta^\top\sum_i t(x_i) - nA(\eta)\big)$, and the identical
+argument gives
+
+$$
+\chi' = \chi + \sum_{i=1}^n t(x_i), \qquad \nu' = \nu + n.
+$$
+
+Nothing in this update depends on the family. That is why `posterior_update` is written
+once on the base class. The prior itself is an exponential family in $\eta$ with
+sufficient statistic $(\eta, -A(\eta))$ and natural parameter $(\chi, \nu)$; $B$ is its
+log-partition function.
+
+### Matching the Beta to $(\chi, \nu)$: the Jacobian
+
+The Beta prior is a density on $p \in (0, 1)$; the conjugate form is a density on
+$\eta \in \R$. Changing variables from $p$ to $\eta = \log\frac{p}{1-p}$ requires the
+Jacobian $\frac{\dd p}{\dd\eta} = p(1 - p)$ (Module 2, Step 2). So the Beta density
+expressed over $\eta$ is proportional to
+
+$$
+p^{a-1}(1-p)^{b-1}\cdot p(1-p) = p^{a}(1-p)^{b} = \exp\big(a\log p + b\log(1 - p)\big).
+$$
+
+With $\log p = \eta - \log(1 + e^\eta)$ and $\log(1 - p) = -\log(1 + e^\eta)$ this is
+$\exp\big(a\eta - (a + b)\log(1 + e^\eta)\big) = \exp\big(a\eta - (a+b)A(\eta)\big)$.
+Hence $\chi = a$, $\nu = a + b$, and $B(\chi, \nu) = \log\mathrm B(\chi, \nu - \chi)$.
+The Jacobian is what shifted the exponents from $a - 1$ to $a$; this is the origin of
+the "pseudo-count" convention differing by one between textbooks and natural
+parameters.
+
+::: {.callout-important title="Jacobian check"}
+This is the [change of variables of Module 2b](../day0/m02b-foundations.qmd#sec-jacobian),
+with $p = \sigma(\eta)$ and $\dd p/\dd\eta = p(1 - p)$. Check it before trusting the
+exponent shift:
+
+```python
+import jax.scipy.stats as jss
+from workshop.jacobian_check import check_change_of_variables
+a, b = 2.0, 5.0
+log_p_prob = lambda p: jss.beta.logpdf(p, a, b)                               # Beta density of p
+log_p_eta  = lambda eta: a * eta - (a + b) * jnp.log1p(jnp.exp(eta)) - jss.betaln(a, b)  # claimed density of eta
+check_change_of_variables(log_p_prob, jax.nn.sigmoid, log_p_eta, jnp.linspace(-4, 4, 9))  # zeros
+```
+
+Replace `a * eta` by `(a - 1) * eta` and `(a + b)` by `(a + b - 2)` to see what the
+textbook exponents give without the Jacobian: the discrepancy is exactly
+$\log p(1-p)$ at each point.
+:::
+
+The same calculation for the minimal Categorical of Module 3, with the additive
+log-ratio transform (Jacobian $\prod_k p_k$), gives $\chi = \alpha_{1:K-1}$,
+$\nu = \sum_k \alpha_k$, and $B$ the log multivariate Beta function
+$\sum_k\log\Gamma(\alpha_k) - \log\Gamma(\sum_k\alpha_k)$.
+
+### Evidence and prediction as ratios of normalisers
+
+Write out the evidence for a general conjugate pair, one line at a time.
+
+$$
+p(x_{1:n}) = \int p(x_{1:n}\mid\eta)\,p(\eta\mid\chi,\nu)\dd\eta
+$$
+
+Substitute both exponential-family forms:
+
+$$
+= \prod_i h(x_i)\int \exp\Big(\eta^\top\textstyle\sum_i t(x_i) - nA(\eta)\Big)\exp\big(\chi^\top\eta - \nu A(\eta) - B(\chi, \nu)\big)\dd\eta
+$$
+
+Collect the exponent; it is the unnormalised posterior with parameters $(\chi', \nu')$:
+
+$$
+= \prod_i h(x_i)\,e^{-B(\chi,\nu)}\int \exp\big(\chi'^\top\eta - \nu' A(\eta)\big)\dd\eta
+$$
+
+The remaining integral is, by definition of $B$, $e^{B(\chi', \nu')}$. So
+
+$$
+\log p(x_{1:n}) = B(\chi', \nu') - B(\chi, \nu) + \sum_i \log h(x_i).
+$$
+
+For the Beta–Bernoulli this is $\log\mathrm B(a + k, b + n - k) - \log\mathrm B(a, b)$,
+the hand result. The posterior predictive is the one-observation case applied to the
+posterior:
+
+$$
+\log p(x_{\text{new}}\mid x_{1:n}) = B\big(\chi' + t(x_{\text{new}}),\ \nu' + 1\big) - B(\chi', \nu') + \log h(x_{\text{new}}).
+$$
+
+For a conversion, $B(a' + 1, b') - B(a', b') = \log\frac{a'}{a' + b'}$: the predictive
+probability of the next conversion is the posterior mean of the rate. Not the
+likelihood at the posterior mean (which here happens to coincide, but will not for
+the Normal–Gamma), but the average of the likelihood over the posterior. The chain rule
+$\log p(x_{1:n}) = \sum_i \log p(x_i\mid x_{<i})$ then holds exactly, and the tests
+check it.
+
+### A worked example with numbers
+
+The data in `ab_test_conversions()` are generated with true rates 6.2% (A) and 7.9%
+(B), but this is one draw of the experiment:
+
+| Arm | conversions $k$ | users $n$ | sample rate |
+|---|---|---|---|
+| A | 30 | 400 | 7.50% |
+| B | 27 | 380 | 7.11% |
+
+In this sample A looks *better* than B even though B's true rate is higher. With a
+$\mathrm{Beta}(1, 1)$ prior ($\chi = 1$, $\nu = 2$: one pseudo-success and one
+pseudo-failure) the updates are addition:
+
+| Arm | $(\chi', \nu')$ | Beta$(a', b')$ | posterior mean | posterior sd | 90% interval |
+|---|---|---|---|---|---|
+| A | $(31, 402)$ | $(31, 371)$ | 0.0771 | 0.0133 | $[0.057, 0.100]$ |
+| B | $(28, 382)$ | $(28, 354)$ | 0.0733 | 0.0133 | $[0.053, 0.096]$ |
+
+The posterior standard deviation of about 1.3 percentage points is the number Module
+3's Fisher calculation predicted (1.2 points from the likelihood alone). The true gap of
+1.7 points is about one standard deviation, so the experiment cannot resolve it, and
+Step 5's Monte Carlo gives
+
+$$
+P(p_B > p_A \mid \text{data}) \approx 0.42.
+$$
+
+Not "B is worse": the data lean slightly toward A but the posterior says it is close
+to a coin flip, which is the honest answer. The log evidence for arm A is $-109.96$,
+compared with $-106.55$ for the likelihood at the maximum-likelihood rate: the evidence
+is lower because it averages over rates the data do not favour. Comparing a model with
+one shared rate for both arms against the two-rate model gives a log Bayes factor of
+$-3.04$ in favour of the shared rate: with this much data, the simpler model is
+preferred, by a factor of about 21. The Challenge asks how that number depends on the
+prior.
+
+### The Normal–Gamma: completing the square
+
+The qPCR data are twelve replicate measurements of a log fold-change, modelled as
+$x_i \sim \mathcal N(\mu, \lambda^{-1})$ with both the mean $\mu$ and the precision
+$\lambda$ unknown. The conjugate prior is hierarchical:
+
+$$
+\lambda \sim \mathrm{Gamma}(\alpha, \beta), \qquad \mu\mid\lambda \sim \mathcal N\big(m, (\kappa\lambda)^{-1}\big).
+$$
+
+The prior precision of $\mu$ scales with $\lambda$: if the measurements are noisy, we
+are correspondingly less sure of their mean. $\kappa$ is a pseudo-count for the mean and
+$2\alpha$ a pseudo-count for the precision.
+
+Multiply likelihood and prior and look at the exponent as a function of $\mu$:
+
+$$
+-\frac\lambda2\sum_i(x_i - \mu)^2 - \frac{\kappa\lambda}{2}(\mu - m)^2.
+$$
+
+Expand the first sum around the sample mean $\bar x$ using
+$\sum_i(x_i - \mu)^2 = \sum_i(x_i - \bar x)^2 + n(\bar x - \mu)^2$:
+
+$$
+-\frac\lambda2\Big[\underbrace{\textstyle\sum_i(x_i - \bar x)^2}_{S} + n(\bar x - \mu)^2 + \kappa(\mu - m)^2\Big].
+$$
+
+The two quadratics in $\mu$ combine into one. Completing the square,
+
+$$
+n(\mu - \bar x)^2 + \kappa(\mu - m)^2 = (n + \kappa)\Big(\mu - \frac{n\bar x + \kappa m}{n + \kappa}\Big)^2 + \frac{n\kappa}{n + \kappa}(\bar x - m)^2.
+$$
+
+Read off the posterior: a Gaussian in $\mu$ with precision $\lambda\kappa_n$ and mean
+$m_n$, times a Gamma in $\lambda$ whose rate collects every term not involving $\mu$:
+
+$$
+\kappa_n = \kappa + n,\quad
+m_n = \frac{\kappa m + n\bar x}{\kappa_n},\quad
+\alpha_n = \alpha + \tfrac n2,\quad
+\beta_n = \beta + \tfrac12 S + \frac{\kappa n(\bar x - m)^2}{2\kappa_n}.
+$$
+
+The three pieces of $\beta_n$ have names: prior rate, half the within-sample scatter,
+and a penalty for the sample mean disagreeing with the prior mean. The unnormalised
+density $\lambda^{\alpha - 1/2}e^{-\beta\lambda}e^{-\kappa\lambda(\mu - m)^2/2}$ has
+normaliser $Z = \Gamma(\alpha)\beta^{-\alpha}\sqrt{2\pi/\kappa}$, and the evidence is
+$\log Z_n - \log Z_0 - \frac n2\log 2\pi$: the normaliser-ratio identity again, now in
+two parameters.
+
+**Shrinkage, with the qPCR numbers.** The twelve replicates have $\bar x = 1.808$ and
+sample standard deviation $0.257$ (true values $1.8$ and $0.35$). With the prior
+$(m, \kappa, \alpha, \beta) = (0, 0.1, 2, 0.5)$, which says "the mean is near 0 but I
+would trade that belief for a tenth of one observation", the posterior is
+$(m_n, \kappa_n, \alpha_n, \beta_n) = (1.793, 12.1, 8, 1.027)$. The posterior mean of
+$\mu$ is pulled from $1.808$ toward $0$ by $\kappa/(\kappa + n) = 0.1/12.1 \approx 0.8\%$:
+**shrinkage** toward the prior mean, by an amount set by the pseudo-count. The posterior
+mean precision is $\alpha_n/\beta_n = 7.8$, so a posterior noise scale of about
+$0.36$, close to the true $0.35$ although the sample scatter alone gave $0.26$; the
+disagreement penalty $\kappa n(\bar x - m)^2/(2\kappa_n) = 0.162$ nats and the prior
+rate contribute. The posterior standard deviation of $\mu$ is about $0.11$.
+
+### Streaming and order independence
+
+Because the update is addition, processing the data one at a time gives exactly the
+batch result, and the order does not matter: $\chi + t(x_1) + t(x_2) = \chi + t(x_2) + t(x_1)$.
+An online system can keep $(\chi, \nu)$ as its entire state, update it per event, and
+answer "what is the posterior now" at any moment. Step 5 implements this with
+`lax.scan` and checks it against the batch update. The same property means the
+posterior forgets the order and timing of events; if those matter (drift, seasonality),
+the model is wrong, not the update.
+
+### Why this matters later
+
+- **Module 6.** CAVI for a conjugate mixture model consists of exactly these updates,
+  with expected sufficient statistics (responsibility-weighted counts) in place of
+  observed ones.
+- **Module 8.** Stochastic variational inference's natural-gradient step is a noisy
+  version of the same addition.
+- **Modules 7, 8, 11.** The Beta and Normal–Gamma posteriors are the exact answers that
+  the Laplace approximation, black-box VI and HMC are checked against.
+- **Module 13.** The marginal likelihood as model-comparison score returns when
+  comparing models written in the PPL.
+
+### Common misconceptions
+
+- **"Conjugate priors are a mathematical trick with no modelling content."** They
+  encode beliefs as pseudo-observations, which is a transparent way to state a prior:
+  "I believe this as strongly as if I had seen $\nu$ observations with these
+  statistics." That is often more honest than a prior chosen for its shape.
+- **"A flat prior is uninformative."** $\mathrm{Beta}(1, 1)$ is flat on $p$ but not on
+  $\eta$; a prior flat on $\eta$ is not flat on $p$. Flatness depends on the coordinate
+  system (that is the Jacobian above). Every prior says something.
+- **"The posterior predictive is the likelihood at the posterior mean."** For the
+  Bernoulli they coincide by accident. For the Normal–Gamma the predictive is a
+  Student-$t$, wider than any Gaussian, because it averages over uncertainty in
+  $\lambda$. Plugging in a point estimate under-states predictive uncertainty.
+- **"More data always makes the evidence larger."** The evidence is a probability of the
+  data; with more observations it gets smaller in absolute terms. Only comparisons
+  between models on the *same* data are meaningful.
+
+## Steps
+
+Every step edits `workshop/m05_conjugacy.py`.
+
+### Step 1 — The generic update and Beta–Bernoulli
+
+**What this computes.** The addition rule $\chi' = \chi + \sum_i t(x_i)$,
+$\nu' = \nu + n$, once for every family, plus the Beta–Bernoulli normaliser so that the
+evidence and predictive of Step 4 become possible.
+
+Implement `posterior_update(prior, xs)`: `vmap` `prior.fam.sufficient_stats` over `xs`,
+sum, add to `chi`, add `xs.shape[0]` to `nu`, return `prior.with_params(...)`.
+
+Complete `BetaBernoulli.beta_params()` returning $(a, b) = (\chi_0, \nu - \chi_0)$ and
+`BetaBernoulli.log_normalizer()` as $\log\Gamma(a) + \log\Gamma(b) - \log\Gamma(a+b)$.
+Use `gammaln`, not `jax.scipy.special.betaln`, which is accurate only to about
+$10^{-7}$ in 64-bit.
+
+Sanity check: update `BetaBernoulli.from_beta(1, 1)` with arm A of the A/B data;
+`beta_params()` should return `(31.0, 371.0)` and `nu` should be `402.0`.
+
+```bash
+pytest tests/m05 -k step1
+```
+
+You should see 2 passed: the posterior for variant A of the A/B test equals the
+count-based Beta update, and the normaliser matches `scipy.special.betaln`.
+
+### Step 2 — Dirichlet–Categorical
+
+**What this computes.** The same update for six attribution channels. The only new
+work is the bookkeeping between the $K - 1$ natural parameters of the minimal
+Categorical and the $K$ concentrations of the Dirichlet: the reference category's
+concentration is $\nu - \sum\chi$.
+
+Complete `DirichletCategorical.alpha()` (append $\nu - \sum\chi$ to $\chi$) and
+`log_normalizer()`.
+
+Sanity check: `DirichletCategorical.from_alpha(jnp.ones(6) * 0.5).alpha()` should
+round-trip to `[0.5] * 6`, and after updating with the attribution labels the posterior
+mean `alpha / alpha.sum()` should be within a few percent of `[0.31, 0.22, 0.14, 0.12,
+0.09, 0.12]`.
+
+```bash
+pytest tests/m05 -k step2
+```
+
+You should see 2 passed. The posterior mean over channels is within 0.03 of the true
+attribution probabilities.
+
+### Step 3 — Normal–Gamma for qPCR replicates
+
+**What this computes.** The completed-square update, its normaliser, and the evidence
+as a normaliser ratio. The grid test is an independent check: it integrates the
+unnormalised posterior numerically on a $401 \times 801$ grid and compares posterior
+means, so a wrong $\beta_n$ shows up as a wrong mean precision.
+
+Implement `normal_gamma_update`, `normal_gamma_log_normalizer` and
+`normal_gamma_log_marginal` from the formulas above.
+
+Sanity check: with the prior $(0, 0.1, 2, 0.5)$ and the qPCR data, the posterior should
+be approximately $(1.793, 12.1, 8.0, 1.027)$.
+
+```bash
+pytest tests/m05 -k step3
+```
+
+You should see 2 passed. The first compares your posterior means of $\mu$ and
+$\lambda$ against a 401 × 801 grid integration of the unnormalised posterior; the second
+compares the marginal likelihood of three observations against nested quadrature.
+
+### Step 4 — Evidence and prediction
+
+**What this computes.** The two normaliser-ratio identities, generically. Both call
+only `posterior_update`, `log_normalizer` and `log_base_measure`, so they work for
+every conjugate pair you define. The quadrature test integrates the Beta–Bernoulli
+evidence numerically; the chain-rule test checks that summing sequential predictives
+reproduces the evidence exactly.
+
+Implement `log_marginal_likelihood(prior, xs)` and `posterior_predictive_logpdf(post, x)`
+from the two identities in the Background, using `posterior_update`, `log_normalizer`
+and `log_base_measure` only.
+
+Sanity check: `log_marginal_likelihood(BetaBernoulli.from_beta(1, 1), arm_A)` should
+print about `-109.96`, and `exp(posterior_predictive_logpdf(post_A, 1.0))` should equal
+the posterior mean `31 / 402 = 0.0771`.
+
+```bash
+pytest tests/m05 -k step4
+```
+
+You should see 3 passed: the Beta–Bernoulli evidence equals a one-dimensional
+quadrature; the predictive probability of a conversion equals the posterior mean
+$a/(a+b)$; and for the Dirichlet–Categorical the predictive sums to one and the evidence
+equals the sum of sequential predictives.
+
+### Step 5 — Streaming updates and a decision
+
+**What this computes.** The one-at-a-time update as a `lax.scan`, which must agree with
+the batch update because addition is associative and commutative; and the posterior
+probability that B beats A, which is a posterior expectation
+$\E[\mathbb 1[p_B > p_A]]$ estimated by drawing from the two independent Beta
+posteriors.
+
+Implement `sequential_update(prior, xs)` with `lax.scan`, returning the final posterior
+and the trajectories of $\chi$ and $\nu$. Implement `prob_b_beats_a(post_a, post_b, key, n)`
+by drawing `n` rates from each Beta posterior with `jax.random.beta`.
+
+```bash
+pytest tests/m05 -k step5
+```
+
+You should see 2 passed: the streaming result equals the batch result, and
+$P(p_B > p_A\mid\text{data})$ agrees with quadrature within four standard errors.
+
+Then compute the decision for the dataset in a REPL:
+
+```python
+from workshop.data import ab_test_conversions
+from workshop.m05_conjugacy import BetaBernoulli, posterior_update, prob_b_beats_a
+import jax, jax.numpy as jnp
+ab = ab_test_conversions()
+prior = BetaBernoulli.from_beta(1.0, 1.0)
+pa = posterior_update(prior, jnp.asarray(ab.a, float))
+pb = posterior_update(prior, jnp.asarray(ab.b, float))
+print(prob_b_beats_a(pa, pb, jax.random.key(0), 100_000))
+```
+
+You should see about `0.42`. The true rates are 6.2% and 7.9%, and B is the better
+variant, but in this sample A converted 30 of 400 and B converted 27 of 380. The
+posterior reports what the data support, which is nearly nothing either way. The
+hierarchical model of Day 3 revisits this kind of decision across eight regions, where
+pooling information across regions sharpens each one.
+
+## Checkpoint
+
+::: {.callout-tip title="Checkpoint"}
+```bash
+pytest tests/m05
+```
+11 tests pass. The Day 1 suite, `pytest tests/m03 tests/m04 tests/m05`, runs in
+under 30 seconds. Before moving on, be able to explain in one sentence each: what
+$\chi$ and $\nu$ mean, why the evidence is a ratio of normalisers, and why the
+posterior predictive is wider than the likelihood at a point estimate.
+
+**Which expectation did you just compute?** Three, all exactly: the evidence
+$\E_{p(\theta)}[p(x \mid \theta)]$, an expectation under the prior; the posterior
+predictive $\E_{p(\theta\mid x)}[p(x_{\text{new}} \mid \theta)]$; and in Step 5 the decision
+quantity $P(p_B > p_A \mid x) = \E_{p(\theta\mid x)}[\mathbb 1[p_B > p_A]]$, estimated by
+sampling because the indicator has no closed form.
+:::
+
+## Challenge
+
+::: {.callout-note title="Challenge"}
+1. Implement a conjugate prior for the full-covariance Gaussian likelihood of Module
+   3 (the Normal–Wishart in natural parameters) and validate the posterior mean of
+   $\Sigma$ against the standard Normal–Inverse-Wishart formulas.
+2. Compute the Bayes factor between a single-rate model for both A/B arms and the
+   two-rate model, using `log_marginal_likelihood`. With a $\mathrm{Beta}(1, 1)$ prior
+   you should find a log Bayes factor of about $-3.0$ in favour of the single rate.
+   Then vary the prior from $(1,1)$ to $(0.1, 0.1)$ to $(10, 10)$ and explain the
+   dependence; this is the Jeffreys–Lindley effect.
+3. Derive the posterior predictive of the Normal–Gamma model (a Student-$t$) from the
+   normaliser-ratio identity and compare its 90% interval for a thirteenth replicate
+   with the interval you would get by plugging in the posterior means of $\mu$ and
+   $\lambda$.
+:::
+
+## Going deeper
+
+- Bishop, *Pattern Recognition and Machine Learning* (Springer, 2006), Section 2.4.2
+  (conjugate priors) and Section 2.3.6 (the Normal–Gamma). The clearest hand
+  derivations.
+- Murphy, *Probabilistic Machine Learning: Advanced Topics* (MIT Press, 2023), Chapter 3
+  (conjugate priors, the marginal likelihood, and the Normal–Gamma and Normal–Wishart
+  posteriors).
+- Diaconis and Ylvisaker, "Conjugate Priors for Exponential Families", *Annals of
+  Statistics* 7(2), 1979: the theorem that the posterior mean of $\mu = \nabla A(\eta)$
+  is linear in the data under exactly these priors.
+- Blei, Kucukelbir and McAuliffe, "Variational Inference: A Review for Statisticians",
+  *JASA* 112(518), 2017, Section 4.2, where this update reappears as the CAVI step for a
+  conditionally conjugate model.
+- Gelman, Carlin, Stern, Dunson, Vehtari and Rubin, *Bayesian Data Analysis* (3rd ed.,
+  2013), Chapter 2, for priors as pseudo-observations and the discussion of
+  non-informative priors.
+
+## Troubleshooting
+
+::: {.callout-warning title="Troubleshooting"}
+**`log_normalizer` differs from SciPy at the seventh digit.** You used
+`jax.scipy.special.betaln`. Compose `gammaln` instead.
+
+**`posterior_update` fails on the A/B data with a dtype error.** The data arrive as
+integers; `Bernoulli.sufficient_stats` casts, but your `chi` must be a float array
+(`from_beta` handles this; check any `with_params` call you wrote).
+
+**Dirichlet predictive does not sum to one.** `alpha()` must append $\nu - \sum\chi$,
+not $\nu$, as the last concentration.
+
+**Normal–Gamma grid test fails for $\lambda$ only.** The last term of $\beta_n$ is
+$\kappa n(\bar x - m)^2 / (2\kappa_n)$; a common slip is $\kappa_n$ in the numerator.
+
+**Quadrature test for Normal–Gamma fails by a constant.** You dropped the
+$-\frac n2\log 2\pi$ that comes from the $n$ Gaussian likelihood normalisers.
+
+**`sequential_update` trajectories have the wrong leading dimension.** `lax.scan`
+stacks outputs along a new leading axis; return `(chi, nu)` as the per-step output
+and do not stack again.
+
+**Your Beta posterior is off by one in each parameter.** You mapped $\mathrm{Beta}(a, b)$
+to $\chi = a - 1$, forgetting the Jacobian of $p \mapsto \eta$. In natural coordinates
+$\chi = a$ and $\nu = a + b$.
+
+**$P(p_B > p_A)$ came out near 0.42 and you expected a confident answer.** Nothing is
+wrong. Thirty versus twenty-seven conversions on about four hundred users each cannot
+separate rates that differ by under two percentage points; the Fisher calculation in
+Module 3 and the KL calculation in Module 4 both predicted this.
+:::

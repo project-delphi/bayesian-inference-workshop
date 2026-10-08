@@ -1,0 +1,513 @@
+---
+title: "Module 7 — Gradient estimators for the ELBO"
+---
+
+## Overview
+
+**Why this module exists.** Module 6 maximised the ELBO with closed-form updates, which
+exist only because every piece of the mixture model was conjugate. Take a model as
+ordinary as logistic regression and the closed forms vanish: the expectations inside
+the ELBO have no formula. The way out is to estimate them, and their gradients, by
+sampling from $q$ and to run stochastic gradient ascent. That raises a problem that
+does not arise in ordinary deep learning: the parameters we are differentiating with
+respect to live *inside the distribution we sample from*. There are two ways to deal
+with that, and they have very different variance. This module derives both from
+scratch, measures their variance on a real posterior, and introduces the Laplace
+approximation as the reference answer everything is compared with.
+
+**What you'll build:** in `workshop/m07_gradients.py`, the log joint of a Bayesian
+logistic regression for SaaS churn, a Laplace approximation as the reference posterior,
+and three Monte Carlo estimators of the ELBO gradient for a mean-field Gaussian guide:
+the score-function (REINFORCE) estimator, the same with a control variate, and the
+pathwise (reparameterisation) estimator. You will measure their variance and plot it
+against sample size.
+
+**Estimated time:** 3 hours (about 1 hour reading, 2 hours building).
+
+**Prerequisites:** [Module 1](../day0/m01-jax-warmup.qmd), [Module 6](m06-cavi.qmd).
+Terms are in the [glossary](../reference/glossary.qmd).
+
+**Dataset:** `saas_churn()`: 500 accounts, design matrix with intercept, standardised
+tenure, weekly active days, support tickets, and an enterprise-plan indicator; binary
+churn within 90 days. True coefficients are known.
+
+## Learning objectives
+
+By the end of this module you can:
+
+1. Explain why $\nabla_\phi\E_{q_\phi}[f(z)]$ is not simply $\E_{q_\phi}[\nabla_\phi f(z)]$
+   and derive the score-function and pathwise estimators line by line.
+2. State the conditions each estimator requires and explain, with a one-dimensional
+   example you can compute by hand, why the pathwise estimator has lower variance.
+3. Construct a control variate from the score function, derive its optimal coefficient
+   and estimate it from samples.
+4. Write down a Bayesian logistic regression, explain why its posterior is not
+   conjugate, and compute a Laplace approximation to it.
+5. Measure estimator variance empirically and confirm $O(1/n)$ scaling.
+
+## Background
+
+### The problem in plain terms
+
+The ELBO for a model $p(x, z)$ and a variational family $q_\phi(z)$ with parameters
+$\phi$ is
+
+$$
+\ELBO(\phi) = \E_{q_\phi}\big[\log p(x, z) - \log q_\phi(z)\big] = \E_{q_\phi}[f_\phi(z)].
+$$
+
+To maximise it by gradient ascent we need $\nabla_\phi\ELBO(\phi)$. If the expectation
+were under a fixed distribution, we would move the gradient inside and estimate
+$\E[\nabla_\phi f]$ by averaging over samples. But the expectation is under $q_\phi$:
+changing $\phi$ changes which $z$ are likely, and that dependence is invisible to a
+gradient taken at fixed samples. Write the expectation as an integral to see both
+dependencies:
+
+$$
+\nabla_\phi\int q_\phi(z)\,f_\phi(z)\dd z = \int\big[\nabla_\phi q_\phi(z)\big]f_\phi(z)\dd z + \int q_\phi(z)\big[\nabla_\phi f_\phi(z)\big]\dd z.
+$$
+
+The second term is the easy one. The first term is the problem: $\nabla_\phi q_\phi(z)$
+is not a density, so the integral is not an expectation we can sample. Two ideas turn
+it into one.
+
+### Definitions
+
+| Term | Meaning |
+|---|---|
+| Monte Carlo estimator | an average over samples that has the quantity of interest as its expectation |
+| unbiased | the estimator's expectation equals the target exactly, for every sample size |
+| variance of an estimator | how much it fluctuates across independent sample sets; the quantity this module measures |
+| score of $q$ | $\nabla_\phi\log q_\phi(z)$, the gradient of the log density with respect to its parameters |
+| control variate | a zero-mean quantity subtracted from an estimator to reduce its variance without changing its mean |
+| Laplace approximation | the Gaussian whose mean is the posterior mode and whose covariance is the inverse negative Hessian there |
+
+### Idea 1: differentiate the density (the score-function estimator)
+
+The log-derivative trick rewrites the awkward gradient as a density times something:
+
+$$
+\nabla_\phi q_\phi(z) = q_\phi(z)\,\frac{\nabla_\phi q_\phi(z)}{q_\phi(z)} = q_\phi(z)\,\nabla_\phi\log q_\phi(z).
+$$
+
+The first equality multiplies and divides by $q_\phi$; the second is the chain rule for
+$\log$. Substitute into the problem term:
+
+$$
+\int\big[\nabla_\phi q_\phi(z)\big]f_\phi(z)\dd z = \int q_\phi(z)\,f_\phi(z)\,\nabla_\phi\log q_\phi(z)\dd z = \E_{q_\phi}\big[f_\phi(z)\,\nabla_\phi\log q_\phi(z)\big].
+$$
+
+Now it is an expectation under $q_\phi$ and can be sampled. For the ELBO,
+$f_\phi(z) = \log p(x, z) - \log q_\phi(z)$ also depends on $\phi$ explicitly, giving the
+second term $\E_{q_\phi}[\nabla_\phi f_\phi] = -\E_{q_\phi}[\nabla_\phi\log q_\phi(z)]$.
+That is the expected score of $q$ under $q$, which is zero (Module 3: differentiate
+$\int q_\phi = 1$). So
+
+$$
+\nabla_\phi\ELBO(\phi) = \E_{q_\phi}\big[f_\phi(z)\,\nabla_\phi\log q_\phi(z)\big],
+\qquad
+\widehat{\nabla}_{\text{SF}} = \frac1n\sum_{s=1}^n f_\phi(z_s)\,\nabla_\phi\log q_\phi(z_s),\quad z_s\sim q_\phi.
+$$
+
+This is the **score-function** or **REINFORCE** estimator. It is unbiased for any
+$f$: $f$ is only ever evaluated, never differentiated. So it works when $z$ is discrete
+(cluster labels, decisions) and when $f$ is a black box.
+
+Why its variance is large: the estimator multiplies $f(z)$, which for a log joint is a
+number in the hundreds, by the score, which is zero on average but not at any particular
+sample. Adding a constant $c$ to $f$ does not change the expectation (because
+$\E[c\,\nabla\log q] = 0$) but changes the variance by roughly $c^2\,\E\|\nabla\log q\|^2$.
+The estimator pays for the *magnitude* of $f$, not for how $f$ changes.
+
+### Idea 2: differentiate the sample (the pathwise estimator)
+
+Suppose we can write a draw from $q_\phi$ as a deterministic function of $\phi$ and of
+noise that does not depend on $\phi$:
+
+$$
+z = g_\phi(\varepsilon),\qquad \varepsilon\sim p(\varepsilon)\text{ fixed}.
+$$
+
+For a Gaussian guide, $g_\phi(\varepsilon) = \mathrm{loc} + \mathrm{scale}\odot\varepsilon$
+with $\varepsilon\sim\mathcal N(0, I)$. Then the expectation over $q_\phi$ is an
+expectation over $\varepsilon$, whose distribution is fixed, and the gradient moves
+inside with no extra term:
+
+$$
+\nabla_\phi\E_{q_\phi}[f(z)] = \nabla_\phi\E_{\varepsilon}\big[f(g_\phi(\varepsilon))\big] = \E_{\varepsilon}\big[\nabla_\phi f(g_\phi(\varepsilon))\big] = \E_{\varepsilon}\big[\nabla_z f(z)\big|_{z = g_\phi(\varepsilon)}\,\nabla_\phi g_\phi(\varepsilon)\big].
+$$
+
+The last step is the chain rule: the gradient flows through the value of $f$ at the
+sample and then through the map from $\phi$ to the sample. The estimator is
+
+$$
+\widehat{\nabla}_{\text{RP}} = \frac1n\sum_s\nabla_\phi f_\phi\big(g_\phi(\varepsilon_s)\big),
+$$
+
+which in JAX is literally `jax.grad` of the sample average with respect to `params`,
+with $\varepsilon$ drawn once outside. This is the **pathwise** or
+**reparameterisation** estimator. It needs $f$ differentiable in $z$ and $q_\phi$
+expressible as a transformation of fixed noise; it does not apply to discrete $z$. Its
+variance depends on how much $\nabla_z f$ varies across samples, not on the size of $f$.
+
+### A worked example with numbers
+
+Take $q_\phi = \mathcal N(\mu, 1)$ in one dimension with $\phi = \mu$, and
+$f(z) = z^2$. The exact answer is $\nabla_\mu\E[z^2] = \nabla_\mu(\mu^2 + 1) = 2\mu$.
+
+**Predict before reading on.** Both estimators are unbiased, so both have mean $2\mu$.
+At $\mu = 0$, which has the larger variance, and by what factor? Then move to $\mu = 2$:
+which estimator's variance changes, and in which direction? Commit to answers before
+opening the box.
+
+::: {.callout-note collapse="true" title="Answer"}
+At $\mu = 0$ the score-function variance is $15$ and the pathwise variance is $4$. At
+$\mu = 2$ the pathwise variance is still $4$; the score-function variance rises to
+$87$. The pathwise estimator depends on how $f$ *changes* ($f' = 2z$, whose spread does
+not depend on $\mu$); the score-function estimator depends on how *large* $f$ is, and
+$f$ grows with $\mu$. The derivation follows.
+:::
+
+**Score function.** $\nabla_\mu\log q = z - \mu$, so the per-sample estimator is
+$z^2(z - \mu)$. At $\mu = 0$ this is $z^3$ with $z\sim\mathcal N(0, 1)$: mean
+$\E[z^3] = 0$ (correct), variance $\E[z^6] = 15$.
+
+**Pathwise.** $z = \mu + \varepsilon$, so $\nabla_\mu f = 2(\mu + \varepsilon)$. At
+$\mu = 0$ this is $2\varepsilon$: mean $0$, variance $4$.
+
+**Control variate.** Subtract a constant $a$ from $f$ before multiplying by the score:
+$(z^2 - a)(z - \mu)$. At $\mu = 0$ its variance is
+$\E[(z^2 - a)^2 z^2] = \E[z^6] - 2a\E[z^4] + a^2\E[z^2] = 15 - 6a + a^2$, minimised at
+$a = 3$ with value $6$.
+
+So at $\mu = 0$ the three variances are $15$, $6$ and $4$. Now move to $\mu = 2$. The
+pathwise variance is still $\mathrm{Var}[2(\mu + \varepsilon)] = 4$: it does not care
+where $\mu$ is. The score-function variance becomes $87$, and the best control variate
+brings it to $38$: the estimator is paying for $f$ being larger. The simulation in
+`notebooks/m07_gradients.py` reproduces these numbers to two decimals.
+
+![Per-sample values of the three estimators for $f(z) = z^2$, at $\mu = 0$ (top) and $\mu = 2$ (bottom). All six histograms are centred on the true gradient. The pathwise histogram has the same width in both rows; the score-function histograms widen as $f$ grows, and the control variate recovers only part of the loss.](../figures/m07_estimator_hist.png)
+
+On the churn posterior the gap is far larger because $f$ is a log joint near $-243$.
+At the Laplace fit with $n = 16$ samples, the total variance of the plain
+score-function estimator is about $9.6\times10^5$, against about $30$ for the pathwise
+estimator and about $27$ for the score-function estimator with per-coordinate control
+variates. The control variate recovers four orders of magnitude; the pathwise estimator
+gets there without any variance reduction at all.
+
+### Control variates from first principles
+
+For any random $X$ and any zero-mean $Y$, $X - aY$ has the same expectation as $X$ for
+every scalar $a$. Its variance is
+$\mathrm{Var}[X] - 2a\,\mathrm{Cov}(X, Y) + a^2\mathrm{Var}[Y]$, a parabola in $a$
+minimised at
+
+$$
+a^* = \frac{\mathrm{Cov}(X, Y)}{\mathrm{Var}[Y]},\qquad \mathrm{Var}[X - a^*Y] = \mathrm{Var}[X]\big(1 - \mathrm{corr}(X, Y)^2\big).
+$$
+
+The more correlated $Y$ is with $X$, the more variance it removes. For the
+score-function estimator, coordinate $j$ is $X = f(z)s_j(z)$ with
+$s_j = \partial_{\phi_j}\log q_\phi$, and the natural zero-mean companion is
+$Y = s_j(z)$ itself, since $\E[s_j] = 0$. Then
+
+$$
+a_j^* = \frac{\mathrm{Cov}\big(f(z)s_j(z),\, s_j(z)\big)}{\mathrm{Var}\big(s_j(z)\big)},
+$$
+
+estimated from the same samples, one $a_j^*$ per coordinate. Estimating $a^*$ from the
+samples it is applied to introduces a bias of order $1/n$, which is negligible in
+practice and which the tests allow for.
+
+### Bayesian logistic regression, from zero
+
+The model for whether account $i$ churns within 90 days:
+
+$$
+\beta \sim \mathcal N(0, s^2 I),\qquad
+y_i \mid x_i, \beta \sim \mathrm{Bernoulli}\big(\sigma(x_i^\top\beta)\big),\quad \sigma(\eta) = \frac{1}{1 + e^{-\eta}}.
+$$
+
+The unknowns are the five coefficients $\beta$: one per feature plus an intercept. Each
+coefficient is a change in log-odds of churn per standard deviation of its feature (per
+unit for the enterprise indicator). The prior with $s = 2.5$ says that log-odds effects
+larger than about five per feature are implausible; as a regulariser it is L2 with
+weight $1/(2s^2)$. The log joint is
+
+$$
+\log p(y, \beta) = \sum_i\Big[y_i\log\sigma(x_i^\top\beta) + (1 - y_i)\log\sigma(-x_i^\top\beta)\Big] - \frac{\|\beta\|^2}{2s^2} - \frac d2\log(2\pi s^2),
+$$
+
+using $1 - \sigma(\eta) = \sigma(-\eta)$. Why is this not conjugate? The Gaussian prior
+is an exponential family in $\beta$ with sufficient statistics $(\beta, \beta\beta^\top)$.
+The likelihood, as a function of $\beta$, involves $\log(1 + e^{-x_i^\top\beta})$, which is
+not a linear combination of those statistics. Multiplying prior by likelihood does not
+land back in the Gaussian family, so there is no finite-dimensional family in which the
+posterior lives and no closed-form update. Every expectation in the ELBO must be
+estimated.
+
+### The Laplace approximation
+
+If you cannot have the posterior, a Gaussian centred at its mode is a cheap and often
+good stand-in. Expand the log joint to second order around the mode $\hat\beta$, where
+the gradient vanishes:
+
+$$
+\log p(y, \beta) \approx \log p(y, \hat\beta) - \tfrac12(\beta - \hat\beta)^\top H(\beta - \hat\beta),\qquad H = -\nabla^2\log p(y, \hat\beta).
+$$
+
+Exponentiating gives an unnormalised Gaussian with mean $\hat\beta$ and covariance
+$H^{-1}$. Integrating it gives an estimate of the evidence:
+
+$$
+\log p(y) \approx \log p(y, \hat\beta) + \tfrac d2\log 2\pi - \tfrac12\log\det H.
+$$
+
+For logistic regression the log joint is concave, so Newton's method from zero finds the
+mode reliably. On the churn data the mode and posterior standard deviations are
+
+| coefficient | intercept | tenure | active days | tickets | enterprise |
+|---|---|---|---|---|---|
+| true | $-1.10$ | $-0.80$ | $-1.20$ | $0.70$ | $-0.50$ |
+| Laplace mean | $-0.95$ | $-0.59$ | $-1.23$ | $0.75$ | $-0.53$ |
+| Laplace sd | $0.14$ | $0.13$ | $0.14$ | $0.12$ | $0.26$ |
+
+Every true coefficient is within two posterior standard deviations of the mode. The
+largest posterior correlation is $0.45$ (intercept against the enterprise indicator,
+which is a shifted intercept for 30% of accounts), so a mean-field fit will
+under-disperse those two coordinates. The Laplace evidence estimate is $-247.95$; the
+mean-field ELBO of Module 8 lands within a nat of it.
+
+### Why this matters later
+
+- Module 8 builds the optimiser around the pathwise estimator and uses the Laplace
+  fit as the reference in its tests.
+- Module 14's VAE is the pathwise estimator with the variational parameters produced
+  by a neural network; Kingma and Welling's "reparameterisation trick" is Idea 2.
+- Track B's denoising score matching is a different "score" (the gradient of a log
+  density with respect to $x$, not $\phi$); the name clash is historical.
+- When $z$ is discrete, as in the cluster labels of Module 6, only Idea 1 applies. That
+  is why mixture models under black-box VI usually marginalise the labels analytically
+  first.
+
+### Common misconceptions
+
+- **"The gradient of an expectation is the expectation of the gradient."** Only when
+  the distribution does not depend on the parameter. Here it does.
+- **"Lower variance means biased."** Both estimators are exactly unbiased. The
+  difference is purely in variance, and the tests check both facts separately.
+- **"A control variate always helps."** It helps exactly as much as its correlation
+  with the estimator allows; with a poorly chosen coefficient it hurts.
+- **"The Laplace approximation is a variational method."** It is a local expansion at
+  the mode, not an optimisation of any divergence. It is accurate when the posterior is
+  nearly Gaussian, which with 500 observations and a concave log-likelihood it is.
+
+## Steps
+
+Every step edits `workshop/m07_gradients.py`. The guide functions `guide_sample` and
+`guide_log_prob` are given.
+
+### Step 1 — Log joint and Laplace approximation
+
+**What this computes.** The log joint of the churn model, written with `log_sigmoid`
+so that extreme logits do not underflow, and the Gaussian approximation at its mode by
+Newton's method with autodiff Hessians.
+
+Implement `churn_log_joint(beta, X, y, prior_scale)` with `jax.nn.log_sigmoid` for both
+classes (never `log(sigmoid(.))`), `laplace(log_joint, z0, n_newton)` with Newton steps
+in `lax.fori_loop`, and `laplace_log_evidence`.
+
+Sanity check: `laplace(lj, jnp.zeros(5))` on the churn data should return the mean and
+standard deviations in the table above, and `laplace_log_evidence` should give
+$-247.95$.
+
+```bash
+pytest tests/m07 -k step1
+```
+
+You should see 3 passed: the log joint against SciPy, zero gradient and correct
+curvature at the mode with the true coefficients within three posterior SDs, and exact
+evidence on a Gaussian log joint.
+
+### Step 2 — Score-function estimator
+
+**What this computes.** Idea 1: samples from the guide, the value of $f$ at each, the
+score of the guide at each, and their average product. `stop_gradient` on the samples
+makes sure the only path from $\phi$ to the output is through the score.
+
+Implement `elbo_grad_score(key, params, log_joint, n)`. Wrap the samples in
+`jax.lax.stop_gradient` so the score is the only path through $\phi$; compute the
+per-sample score with `jax.vmap(jax.grad(guide_log_prob), in_axes=(None, 0))`; return a
+dict with the same structure as `params`.
+
+Sanity check: on the one-dimensional toy with `log_joint = lambda z: -jnp.sum(z**2)`
+and `params = {"loc": jnp.array([0.]), "log_scale": jnp.array([0.])}`, the exact
+gradient of the ELBO with respect to `loc` is $0$. Run the estimator with $n = 16$ under
+4 000 different keys: the mean should be $0$ to within $0.01$ and the variance of the
+estimate about $0.12$. (These numbers differ from the worked example because the ELBO's
+$f$ is $\log p - \log q = -\tfrac12 z^2 + \text{const}$, not $z^2$.)
+
+```bash
+pytest tests/m07 -k step2
+```
+
+You should see 2 passed. The unbiasedness test averages 60 estimates with $n = 2000$
+and compares against a 200 000-sample pathwise estimate within five standard errors.
+
+### Step 3 — Control variate
+
+**What this computes.** The same estimator with $a_j^*$ subtracted from $f$ for each
+coordinate, with $a_j^*$ estimated from the same samples by the covariance formula.
+
+Implement `elbo_grad_score_cv` with the per-coordinate optimal baseline $a_j^*$ above,
+estimated from the same samples.
+
+Sanity check: repeating the Step 2 experiment with this estimator, the variance of
+the $n = 16$ estimate should fall from about $0.12$ to about $0.07$, with the mean still
+$0$.
+
+```bash
+pytest tests/m07 -k step3
+```
+
+You should see 2 passed: every coordinate's variance is lower than without the
+baseline, total variance drops by more than half, and the estimator stays unbiased
+within five standard errors.
+
+### Step 4 — Pathwise estimator
+
+**What this computes.** Idea 2: draw $\varepsilon$ once, define the sample-average ELBO
+as a function of `params` through $g_\phi(\varepsilon)$, and differentiate it. JAX's
+chain rule does the rest.
+
+Implement `elbo_grad_reparam`: draw $\epsilon$ once, define the objective as a function
+of `params` through $g_\phi(\epsilon)$, and take `jax.grad` of the sample mean.
+
+Sanity check: on the same toy at $n = 16$ the variance of the estimate is about
+$0.25$, *higher* than the score-function estimator's $0.12$. That is not a bug. On this
+toy $|f|$ is of order one, so the score-function estimator is not penalised for the
+magnitude of $f$, while the pathwise estimator pays for the variance of $\nabla_z f$.
+The ordering reverses on any real posterior, where $f$ is a log joint in the hundreds:
+on the churn posterior the ratio is about $30\,000$ in the other direction, which is
+what Step 5 measures.
+
+```bash
+pytest tests/m07 -k step4
+```
+
+You should see 2 passed: exact expected gradient on a Gaussian target
+($\partial_{\mathrm{loc}} = -(\mathrm{loc} - m)/s^2$,
+$\partial_{\text{log\_scale}} = 1 - \mathrm{scale}^2/s^2$), and variance at least ten
+times lower than the score-function estimator at equal $n$.
+
+### Step 5 — Variance study
+
+**What this computes.** The variance of each estimator, as a function of the number of
+samples $n$, estimated by repeating the estimator many times with fresh keys. An
+average of $n$ independent terms has variance proportional to $1/n$, so on a log-log
+plot each estimator should be a line of slope $-1$, and the three lines should be
+parallel with the score-function line far above the others.
+
+Implement `estimator_variance(key, estimator, params, log_joint, n_samples, n_repeats)`
+(variance across repeats of the flattened gradient) and `gradient_variance_study`.
+
+```bash
+pytest tests/m07 -k step5
+```
+
+You should see 1 passed: for every estimator the total variance decreases monotonically
+in $n \in \{4, 16, 64, 256\}$ with a 64-fold span between 20 and 200, and the ordering
+score $>$ score with control variate $>$ pathwise holds at every $n$.
+
+![Total gradient variance against the number of samples on the churn posterior, log-log. All three lines have slope $-1$; the plain score-function estimator sits four orders of magnitude above the pathwise one, and the per-coordinate control variate closes almost the whole gap.](../figures/m07_variance_scaling.png){width=65%}
+
+`notebooks/m07_gradients.py` produces this plot from your own estimators.
+
+## Checkpoint
+
+::: {.callout-tip title="Checkpoint"}
+```bash
+pytest tests/m07
+```
+10 tests pass in about 30 seconds. Module 8 imports `laplace` and
+`churn_log_joint` from this file. Before moving on, be able to write both estimators
+for $q = \mathcal N(\mu, 1)$ and $f(z) = z^2$ from memory and state their variances
+at $\mu = 0$.
+
+**Which expectation did you just compute?** The gradient of an expectation,
+$\nabla_\phi\E_{q_\phi}[f]$, rewritten two ways as an expectation that can be sampled:
+$\E_{q_\phi}[f\,\nabla_\phi\log q_\phi]$ and $\E_\varepsilon[\nabla_\phi f(g_\phi(\varepsilon))]$.
+The variance study measured how well a sample mean estimates each.
+:::
+
+## Challenge
+
+::: {.callout-note title="Challenge"}
+1. Roeder, Wu and Duvenaud (2017) observe that the pathwise estimator of
+   $\nabla_\phi\E_q[\log p - \log q_\phi]$ contains a score term from the explicit
+   $\phi$ in $\log q_\phi$ whose expectation is zero but whose variance is not.
+   Dropping it ("sticking the landing") gives an estimator with zero variance when
+   $q = p$. Implement it with `stop_gradient` on the $\phi$ inside $\log q_\phi$ and
+   repeat the variance study at `params` set to the Laplace fit.
+2. Implement the Rao–Blackwellised score estimator of Ranganath et al. (2014):
+   for coordinate $j$ of a mean-field guide, replace $f$ by the terms of the log joint
+   that depend on $z_j$. For logistic regression every term depends on every $z_j$,
+   so construct a factorised model (e.g. the Module 6 mixture with fixed
+   responsibilities) where the reduction is non-trivial.
+3. Derive the exact variance of the score-function estimator for the toy problem at
+   general $\mu$ (you should get a polynomial in $\mu$) and check it against the
+   simulation at $\mu = 2$, where it is $87$.
+:::
+
+## Going deeper
+
+- Ranganath, Gerrish and Blei, "Black Box Variational Inference", *AISTATS*, 2014: the
+  score-function estimator with Rao–Blackwellisation and control variates.
+- Mohamed, Rosca, Figurnov and Mnih, "Monte Carlo Gradient Estimation in Machine
+  Learning", *JMLR* 21, 2020: the definitive survey of score-function, pathwise and
+  measure-valued estimators and their variance. Section 4 is the long version of this
+  Background.
+- Kingma and Welling, "Auto-Encoding Variational Bayes", *ICLR*, 2014, Section 2.4: the
+  reparameterisation trick.
+- Roeder, Wu and Duvenaud, "Sticking the Landing: Simple, Lower-Variance Gradient
+  Estimators for Variational Inference", *NeurIPS*, 2017.
+- Blei, Kucukelbir and McAuliffe (2017), Section 4.3, for the variance problem that
+  motivated black-box VI.
+- Bishop, *PRML*, Section 4.4, for the Laplace approximation and its use on logistic
+  regression.
+
+## Troubleshooting
+
+::: {.callout-warning title="Troubleshooting"}
+**Score-function estimate is biased.** You forgot `stop_gradient` on the samples
+and are differentiating through $g_\phi$ as well, or you included the gradient of
+$\log q_\phi$ with respect to $\phi$ inside $f$ (that term is correct to drop only in
+expectation; it cancels the second term of the derivation).
+
+**`log_joint` returns `-inf` or `nan`.** `jnp.log(jax.nn.sigmoid(eta))` underflows
+for $\eta < -745$ in 64-bit and far earlier in 32-bit. Use `log_sigmoid`.
+
+**Control variate increases variance for some coordinates.** The baseline $a_j$ must
+be per coordinate and estimated with the centred covariance; a single shared scalar
+is a weaker reduction and may hurt coordinates with small score variance.
+
+**Pathwise estimator disagrees with the closed form on the Gaussian test.** Check
+that $\epsilon$ is drawn once outside the objective; drawing it inside `jax.grad`
+with the same key is fine, but drawing with a key derived from `params` is not.
+
+**Variance study non-monotone.** `n_repeats` too small for the score estimator.
+The test uses 150 repeats; variance estimates of heavy-tailed estimators need many
+repeats before the $1/n$ trend is clean.
+
+**Laplace Newton diverges.** Logistic regression has a concave log joint with a
+Gaussian prior, so undamped Newton converges from zero. If you changed the prior
+scale to something very large, start from a few gradient steps instead.
+
+**You expected the two estimators to give the same numbers on one batch.** They are
+different random variables with the same mean. Only their averages over many
+batches agree, which is what the unbiasedness tests check.
+
+**You tried the pathwise estimator with a discrete latent.** There is no
+differentiable map from fixed noise to a categorical sample. Use the score-function
+estimator, or marginalise the discrete variable as Module 6 effectively does.
+:::

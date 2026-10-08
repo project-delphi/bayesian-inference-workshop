@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Widgets dev page</title>
+<style>body{font-family:Inter,system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:0 16px;background:#fff;color:#1f2937} h2{margin-top:3rem}</style>
+</head>
+<body>
+<p><strong>Development page.</strong> Not part of the Quarto site; it mounts every widget with default options for manual checks. Serve <code>site/</code> over HTTP (ES modules do not load from <code>file://</code>).</p>
+
+<h2>sampler_surface (HMC on gauss2d)</h2>
+<div class="bi-widget" id="w1" data-target="gauss2d" data-mode="hmc"></div>
+<h2>sampler_surface (RWM on qpcr)</h2>
+<div class="bi-widget" id="w1b" data-target="qpcr" data-mode="rwm"></div>
+<h2>sampler_surface (HMC on banana)</h2>
+<div class="bi-widget" id="w1c" data-target="banana" data-mode="hmc"></div>
+<h2>funnel</h2>
+<div class="bi-widget" id="w2"></div>
+<h2>bregman</h2>
+<div class="bi-widget" id="w3"></div>
+<h2>diffusion_paths</h2>
+<div class="bi-widget" id="w4"></div>
+<h2>kl_direction</h2>
+<div class="bi-widget" id="w5"></div>
+
+<script type="module">
+import { mount as s } from "./sampler_surface.js";
+import { mount as f } from "./funnel.js";
+import { mount as b } from "./bregman.js";
+import { mount as d } from "./diffusion_paths.js";
+import { mount as k } from "./kl_direction.js";
+s(document.getElementById("w1")); s(document.getElementById("w1b")); s(document.getElementById("w1c"));
+f(document.getElementById("w2")); b(document.getElementById("w3")); d(document.getElementById("w4")); k(document.getElementById("w5"));
+window.__widgetsMounted = true;
+</script>
+</body>
+</html>

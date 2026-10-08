@@ -1,0 +1,121 @@
+---
+title: "References"
+---
+
+Primary sources cited across the workshop. Where a URL is not given, the item is
+findable by title and author; nothing here is invented.
+
+## Variational inference
+
+- Blei, Kucukelbir and McAuliffe. "Variational Inference: A Review for Statisticians."
+  *Journal of the American Statistical Association* 112(518), 2017.
+- Wainwright and Jordan. "Graphical Models, Exponential Families, and Variational
+  Inference." *Foundations and Trends in Machine Learning* 1(1–2), 2008.
+- Hoffman, Blei, Wang and Paisley. "Stochastic Variational Inference." *JMLR* 14, 2013.
+- Ranganath, Gerrish and Blei. "Black Box Variational Inference." *AISTATS*, 2014.
+- Kucukelbir, Tran, Ranganath, Gelman and Blei. "Automatic Differentiation Variational
+  Inference." *JMLR* 18, 2017.
+- Kingma and Welling. "Auto-Encoding Variational Bayes." *ICLR*, 2014.
+- Rezende, Mohamed and Wierstra. "Stochastic Backpropagation and Approximate Inference
+  in Deep Generative Models." *ICML*, 2014.
+- Mohamed, Rosca, Figurnov and Mnih. "Monte Carlo Gradient Estimation in Machine
+  Learning." *JMLR* 21, 2020.
+- Roeder, Wu and Duvenaud. "Sticking the Landing: Simple, Lower-Variance Gradient
+  Estimators for Variational Inference." *NeurIPS*, 2017.
+- Kingma and Ba. "Adam: A Method for Stochastic Optimization." *ICLR*, 2015.
+
+## Markov chain Monte Carlo
+
+- Betancourt. "A Conceptual Introduction to Hamiltonian Monte Carlo." arXiv:1701.02434,
+  2017.
+- Neal. "MCMC Using Hamiltonian Dynamics." In *Handbook of Markov Chain Monte Carlo*,
+  Chapman and Hall/CRC, 2011.
+- Hoffman and Gelman. "The No-U-Turn Sampler: Adaptively Setting Path Lengths in
+  Hamiltonian Monte Carlo." *JMLR* 15, 2014.
+- Vehtari, Gelman, Simpson, Carpenter and Bürkner. "Rank-Normalization, Folding, and
+  Localization: An Improved $\hat R$ for Assessing Convergence of MCMC." *Bayesian
+  Analysis* 16(2), 2021.
+- Geyer. "Practical Markov Chain Monte Carlo." *Statistical Science* 7(4), 1992.
+- Betancourt and Girolami. "Hamiltonian Monte Carlo for Hierarchical Models."
+  arXiv:1312.0906, 2013.
+- Girolami and Calderhead. "Riemann Manifold Langevin and Hamiltonian Monte Carlo
+  Methods." *JRSS B* 73(2), 2011.
+- Leimkuhler and Reich. *Simulating Hamiltonian Dynamics.* Cambridge University Press,
+  2004.
+- Nesterov. "Primal-dual Subgradient Methods for Convex Problems." *Mathematical
+  Programming* 120, 2009.
+- Stan Development Team. *Stan Reference Manual*, chapter "MCMC Sampling".
+
+## Probabilistic programming
+
+- Bingham et al. "Pyro: Deep Universal Probabilistic Programming." *JMLR* 20, 2019.
+- Phan, Pradhan and Jankowiak. "Composable Effects for Flexible and Accelerated
+  Probabilistic Programming in NumPyro." arXiv:1912.11554, 2019.
+- van de Meent, Paige, Yang and Wood. *An Introduction to Probabilistic Programming.*
+  arXiv:1809.10756, 2018.
+- Plotkin and Pretnar. "Handlers of Algebraic Effects." *ESOP*, 2009.
+- Cremer, Li and Duvenaud. "Inference Suboptimality in Variational Autoencoders." *ICML*,
+  2018.
+
+## Flows, diffusion and causality
+
+- Papamakarios, Nalisnick, Rezende, Mohamed and Lakshminarayanan. "Normalizing Flows for
+  Probabilistic Modeling and Inference." *JMLR* 22, 2021.
+- Dinh, Sohl-Dickstein and Bengio. "Density Estimation Using Real NVP." *ICLR*, 2017.
+- Rezende and Mohamed. "Variational Inference with Normalizing Flows." *ICML*, 2015.
+- Kingma, Salimans, Jozefowicz, Chen, Sutskever and Welling. "Improved Variational
+  Inference with Inverse Autoregressive Flow." *NeurIPS*, 2016.
+- Papamakarios, Pavlakou and Murray. "Masked Autoregressive Flow for Density
+  Estimation." *NeurIPS*, 2017.
+- Durkan, Bekasov, Murray and Papamakarios. "Neural Spline Flows." *NeurIPS*, 2019.
+- Hoffman, Sountsov, Dillon, Langmore, Tran and Vasudevan. "NeuTra-lizing Bad Geometry
+  in Hamiltonian Monte Carlo Using Neural Transport." arXiv:1903.03704, 2019.
+- Burda, Grosse and Salakhutdinov. "Importance Weighted Autoencoders." *ICLR*, 2016.
+- Song, Sohl-Dickstein, Kingma, Kumar, Ermon and Poole. "Score-Based Generative Modeling
+  through Stochastic Differential Equations." *ICLR*, 2021.
+- Ho, Jain and Abbeel. "Denoising Diffusion Probabilistic Models." *NeurIPS*, 2020.
+- Song, Durkan, Murray and Ermon. "Maximum Likelihood Training of Score-Based Diffusion
+  Models." *NeurIPS*, 2021.
+- Huang, Lim and Courville. "A Variational Perspective on Diffusion-Based Generative
+  Models and Score Matching." *NeurIPS*, 2021.
+- Karras, Aittala, Aila and Laine. "Elucidating the Design Space of Diffusion-Based
+  Generative Models." *NeurIPS*, 2022.
+- Vincent. "A Connection Between Score Matching and Denoising Autoencoders." *Neural
+  Computation* 23(7), 2011.
+- Hyvärinen. "Estimation of Non-Normalized Statistical Models by Score Matching." *JMLR*
+  6, 2005.
+- Anderson. "Reverse-time Diffusion Equation Models." *Stochastic Processes and their
+  Applications* 12(3), 1982.
+- Chen, Rubanova, Bettencourt and Duvenaud. "Neural Ordinary Differential Equations."
+  *NeurIPS*, 2018.
+- Grathwohl, Chen, Bettencourt, Sutskever and Duvenaud. "FFJORD: Free-form Continuous
+  Dynamics for Scalable Reversible Generative Models." *ICLR*, 2019.
+- Pearl. *Causality: Models, Reasoning, and Inference.* 2nd edition, Cambridge University
+  Press, 2009.
+- Peters, Janzing and Schölkopf. *Elements of Causal Inference.* MIT Press, 2017.
+- Pearl, Glymour and Jewell. *Causal Inference in Statistics: A Primer.* Wiley, 2016.
+- Pearl. "Causal Inference in Statistics: An Overview." *Statistics Surveys* 3, 2009.
+- Balke and Pearl. "Probabilistic Evaluation of Counterfactual Queries." *AAAI*, 1994.
+- Tran and Blei. "Implicit Causal Models for Genome-wide Association Studies." *ICLR*,
+  2018.
+
+## Books
+
+- Murphy. *Probabilistic Machine Learning: Advanced Topics.* MIT Press, 2023.
+- Bishop. *Pattern Recognition and Machine Learning.* Springer, 2006.
+- MacKay. *Information Theory, Inference, and Learning Algorithms.* Cambridge University
+  Press, 2003.
+- Amari. *Information Geometry and Its Applications.* Springer, 2016.
+- Gelman, Carlin, Stern, Dunson, Vehtari and Rubin. *Bayesian Data Analysis.* 3rd edition,
+  CRC Press, 2013.
+
+## Other
+
+- Diaconis and Ylvisaker. "Conjugate Priors for Exponential Families." *Annals of
+  Statistics* 7(2), 1979.
+- Nielsen and Garcia. "Statistical exponential families: A digest with flash cards."
+  arXiv:0911.4863, 2009.
+- Petersen and Pedersen. *The Matrix Cookbook.* Technical University of Denmark, 2012.
+- Baydin, Pearlmutter, Radul and Siskind. "Automatic Differentiation in Machine Learning:
+  a Survey." *JMLR* 18, 2018.
+- Blondel and Roulet. *The Elements of Differentiable Programming.* arXiv:2403.14606, 2024.

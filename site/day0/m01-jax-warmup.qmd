@@ -1,0 +1,377 @@
+---
+title: "Module 1 — JAX warm-up"
+---
+
+## Overview
+
+**Why this module exists.** Every inference algorithm in this workshop is built from
+six operations: differentiate a log density, apply a function to a batch of
+observations or chains, run a fixed number of iterations, draw reproducible random
+numbers, update a bag of parameters, and add probabilities without overflowing. JAX has
+one idiom for each. This module makes you write each idiom once, with a test, on
+problems that are small versions of what Days 1 to 5 do. None of it is Bayesian yet;
+all of it is used on every later page.
+
+**What you'll build:** six small, tested pieces of functional numerics in
+`workshop/m01_jax.py`: a stable `logsumexp`, a batched Gaussian log-density, a Newton
+minimiser driven by `jax.grad` and `jax.hessian` inside `lax.scan`, a mixture sampler
+with explicit PRNG keys, two `lax.scan` recurrences, and pytree arithmetic.
+
+**Estimated time:** 2 hours (about 45 minutes reading, 75 minutes building).
+
+**Prerequisites:** [Module 0](m00-setup.qmd).
+
+## Learning objectives
+
+By the end of this module you can:
+
+1. Write reductions that are stable under overflow and under all-`-inf` inputs, and
+   explain from the floating-point format why `exp(710)` is infinite.
+2. Use `jax.vmap` to batch a single-observation function without touching its body, and
+   say which later computations (likelihoods over data, chains, per-sample gradients)
+   are batches in this sense.
+3. Compose `jax.grad`, `jax.hessian`, `jax.jit` and `lax.scan` into a fixed-length
+   iterative algorithm whose trajectory is a traced array.
+4. Split and consume PRNG keys so that results are reproducible and independent draws
+   never share a key, and explain what goes wrong when they do.
+5. Update nested parameter structures with `jax.tree_util.tree_map`.
+
+## Background
+
+### The problem in plain terms
+
+An inference algorithm is a loop. Inside the loop it evaluates a log density, usually
+over many data points at once, often needs the gradient of that density, draws random
+numbers, and updates some parameters. Doing this in plain NumPy means writing gradients
+by hand, looping in Python over data and iterations, and managing a global random
+state. JAX removes all four problems with four function transformations, and this
+module is where you learn what each one buys for inference specifically.
+
+### Definitions
+
+| Idiom | What it does | Where inference needs it |
+|---|---|---|
+| `jax.grad(f)` | returns the function $x \mapsto \nabla f(x)$ | the score $\nabla_\theta \log p(x \mid \theta)$; the gradient of the ELBO; the force in Hamiltonian Monte Carlo |
+| `jax.hessian(f)` | returns $x \mapsto \nabla^2 f(x)$ | Fisher information (Module 3); Newton steps; the Laplace approximation (Module 2b) |
+| `jax.vmap(f)` | lifts $f$ on one input to $f$ on a batch, without a Python loop | the log-likelihood of $n$ observations; $m$ MCMC chains at once; per-sample gradients for variance estimates |
+| `jax.jit(f)` | compiles $f$ to a single fused program | every loop body; the difference between seconds and minutes |
+| `lax.scan` | runs a loop with a carried state, compiled once | samplers, optimisers, sequential Bayesian updates |
+| `jax.random.key` | an explicit random state you pass around | reproducible Monte Carlo; independent streams for independent draws |
+| pytree | any nested structure of arrays (dicts, lists, tuples) | the parameters of a variational family, a neural network, an optimiser |
+
+Two facts drive everything in this module.
+
+**Transformations compose.** `jax.grad(f)` is itself a function, so
+`jax.hessian(f) = jax.jacfwd(jax.grad(f))`, and `jax.vmap(jax.grad(f))` is a batch of
+per-example gradients. A Newton step is
+
+$$
+x_{k+1} = x_k - \big[\nabla^2 f(x_k)\big]^{-1}\nabla f(x_k),
+$$
+
+and both derivatives come from autodiff. Solve the linear system; never form the inverse.
+The same composition gives you, in Module 3, the mean and covariance of a distribution
+by differentiating its normaliser once and twice.
+
+**Everything is a pure function of its inputs.** No global state, no in-place updates,
+no hidden random generator. This is what makes `jit` and `vmap` possible, and it is why
+randomness must be threaded through as an argument.
+
+### Loops are data
+
+`lax.scan(body, init, xs)` runs `carry, y = body(carry, x)` over the leading axis of
+`xs` and stacks the `y` outputs. The loop is compiled once, differentiates in reverse
+mode, and the trip count is fixed at trace time. A Python `for` loop over traced values
+unrolls the whole loop into the compiled graph, which does not scale past a few hundred
+iterations and compiles painfully slowly before that.
+
+Every sampler and every optimiser in this workshop is a `scan`: the carry is the current
+state (a parameter vector, a chain position and its log density, an optimiser's moment
+estimates) and the stacked output is the trajectory. Learn to see an algorithm as
+"state, update rule, outputs" and `scan` writes itself.
+
+### Randomness is explicit
+
+A `jax.random.key(seed)` is an array. Every call that consumes randomness takes a key
+and returns the same output for the same key. To draw two independent streams,
+`k1, k2 = jax.random.split(key)`. Nothing advances a hidden state.
+
+The failure mode this prevents is subtle and common in hand-written inference code.
+Reusing one key for two draws produces *identical* samples. Drawing noise for
+component labels and for Gaussian offsets from the same key, in a mixture sampler,
+gives offsets that are a deterministic function of the labels, which biases every
+moment you compute afterwards. The Step 4 tests check both that your sampler is
+reproducible and that its moments are right; the second check fails if keys are reused.
+
+Why do we care about reproducibility at all? Because approximate inference is evaluated
+statistically. A Monte Carlo estimate with a known standard error is meaningful only if
+you can re-run it. Every test in this workshop fixes its keys.
+
+### Adding probabilities without overflowing
+
+Log densities of real datasets are large negative numbers (a likelihood of 500
+observations is routinely $-10^3$) and normalisers are sums of exponentials of them.
+Floating point cannot do this directly. A 64-bit float has an 11-bit exponent, so the
+largest finite value is about $1.8\times10^{308} = e^{709.8}$; `exp(710)` is `inf`, and
+`inf - inf` is `nan`. On the other side, `exp(-746)` is exactly zero, and `log(0)` is
+`-inf`.
+
+The fix is one identity. For a vector $a$ with maximum $m$,
+
+$$
+\log\sum_i e^{a_i} = \log\Big(e^{m}\sum_i e^{a_i - m}\Big) = m + \log\sum_i e^{a_i - m}.
+$$
+
+Every exponent on the right is at most zero, so nothing overflows, and the largest term
+contributes exactly $e^0 = 1$, so the sum is at least one and the log is finite. With
+$a = (10^4, 10^4 - 1)$ the naive sum is `inf`; the shifted computation gives
+$10^4 + \log(1 + e^{-1}) = 10000.3133$.
+
+One edge case: when every $a_i = -\infty$ (a mixture component with zero weight), $m$ is
+$-\infty$ and $a_i - m$ is `nan`. The correct answer is $\log 0 = -\infty$. Replace a
+non-finite shift by $0$ before subtracting and the formula gives it.
+
+A running version of the same identity gives a one-pass cumulative log-sum-exp. Carry
+$(m_t, s_t)$ with $s_t = \sum_{i \le t} e^{a_i - m_t}$; when a new value raises the
+maximum to $m_{t+1}$, rescale the old sum by $e^{m_t - m_{t+1}}$ before adding the new
+term. You will use `logsumexp` in Module 2b to normalise a grid posterior, in Module 3
+inside the Categorical normaliser, in Module 6 for the responsibilities of a mixture
+model, and in Day 5's flows and diffusion likelihoods.
+
+### A worked example with numbers
+
+The AR(1) process $x_t = \phi x_{t-1} + \sigma\varepsilon_t$ of Step 5 is the simplest
+model of an MCMC chain: each value depends on the previous one. Its stationary variance
+is found by taking variances of both sides, using independence of $x_{t-1}$ and
+$\varepsilon_t$: $v = \phi^2 v + \sigma^2$, so $v = \sigma^2/(1 - \phi^2)$. With
+$\phi = 0.8$ and $\sigma = 1$ that is $2.78$. The chain's autocorrelation at lag $k$ is
+$\phi^k$, and the number of steps worth one independent draw is
+$(1 + \phi)/(1 - \phi) = 9$: 200 000 correlated draws are worth about 22 000
+independent ones. The Step 5 test inflates its tolerance by exactly this factor, and
+Module 11 turns the same calculation into the effective sample size of a real sampler.
+
+### Where this sits in the workshop
+
+Module 2b uses `logsumexp`, `vmap` and `scan` on the first real posterior. Module 3
+uses `grad` and `hessian` on log-partition functions. Module 7 uses `vmap` over samples
+to measure gradient variance. Modules 9 to 11 are `scan` loops over leapfrog steps and
+sampler iterations, `vmap`ped over chains. Module 12 wraps `jax.random` keys in a handler
+so that models never see them.
+
+### Common misconceptions
+
+- **"`vmap` is a faster `for` loop."** It is a semantic transformation: the function is
+  rewritten to operate on an extra batch axis and then compiled as one program. It does
+  not call the function $n$ times.
+- **"`jit` makes everything fast."** It makes the compiled program fast. Python control
+  flow on traced values, growing lists, and recompilation on every new shape make it
+  slow. `scan` and static arguments are the fixes.
+- **"A key is like a seed."** A seed initialises a hidden generator that advances on
+  every call. A key is a value; using it twice gives the same numbers twice. Split,
+  never reuse.
+- **"Subtracting the max loses precision."** It costs nothing: the result is exact for
+  the largest term and relative error for the others is unchanged. Not subtracting it
+  loses everything.
+
+## Steps
+
+Every step edits `workshop/m01_jax.py`. Signatures and docstrings are fixed.
+
+### Step 1 — Stable `logsumexp`
+
+**What this computes.** The log of a sum of exponentials, with the shift from the
+Background. It is the function that lets every later module stay in the log domain.
+
+Implement `logsumexp(a, axis=None)` with the max-shift above. Do not call
+`jax.nn.logsumexp` or `jax.scipy`. Handle `axis=None` (full reduction, returns a scalar)
+and an integer axis (reduce that axis, drop it from the shape). Guard the shift with
+`jnp.where(jnp.isfinite(m), m, 0.0)`.
+
+Sanity check: `logsumexp(jnp.array([1e4, 1e4 - 1.0]))` prints `10000.3133`;
+`logsumexp(jnp.array([-jnp.inf, -jnp.inf]))` prints `-inf`, not `nan`.
+
+```bash
+pytest tests/m01 -k step1
+```
+
+You should see 4 passed. The tests compare against `scipy.special.logsumexp`, check an
+input of `1e4`, and check that an all-`-inf` input returns `-inf`.
+
+### Step 2 — Gaussian log-density and `vmap`
+
+**What this computes.** The log density of a multivariate Gaussian, the most used
+function in the workshop, and its batched version over rows of data. The Cholesky
+factor $LL^\top = \Sigma$ turns the quadratic form and the log-determinant into a
+triangular solve and a sum of logs of the diagonal, which is both faster and more
+accurate than inverting $\Sigma$.
+
+Implement `gaussian_logpdf(x, mu, cov)` for one vector `x` using a Cholesky factor
+$LL^\top = \Sigma$: with $r = L^{-1}(x - \mu)$ from `jax.scipy.linalg.solve_triangular`,
+
+$$
+\log \mathcal N(x \mid \mu, \Sigma) = -\tfrac{1}{2}\Big(d\log 2\pi + 2\sum_i \log L_{ii} + r^\top r\Big).
+$$
+
+Then implement `batched_gaussian_logpdf(xs, mu, cov)` as
+`jax.vmap(gaussian_logpdf, in_axes=(0, None, None))`. No loops, no manual broadcasting.
+
+Sanity check: `gaussian_logpdf(jnp.zeros(2), jnp.zeros(2), jnp.eye(2))` prints
+$-\log 2\pi = -1.8379$.
+
+```bash
+pytest tests/m01 -k step2
+```
+
+You should see 3 passed, including a test that `jax.jit(jax.grad(gaussian_logpdf))`
+returns $-\Sigma^{-1}(x - \mu)$, the score of a Gaussian with respect to $x$.
+
+### Step 3 — Newton's method with `grad`, `hessian` and `scan`
+
+**What this computes.** A second-order optimiser with no hand-written derivatives, and
+its full trajectory as an array. Module 2b's Laplace approximation and Module 4's
+inversion of the mean map are this function with a line search added.
+
+Implement `newton_step(f, x)` using `jax.grad(f)(x)`, `jax.hessian(f)(x)` and
+`jnp.linalg.solve`. Then implement `newton_minimize(f, x0, n_steps)` with `lax.scan`
+over `None` inputs and `length=n_steps`, returning the final iterate and the stacked
+trajectory of shape `[n_steps, d]`.
+
+Sanity check: on the quadratic in the test, one step lands exactly on the minimiser;
+on the Rosenbrock function from $(-1.2, 1)$, iterate 12 is $(1, 1)$ to eight digits.
+
+```bash
+pytest tests/m01 -k step3
+```
+
+You should see 2 passed. One step solves a quadratic exactly; twelve steps converge on
+the Rosenbrock function from $(-1.2, 1)$ under `jax.jit` with `static_argnums=(0, 2)`.
+
+### Step 4 — PRNG discipline
+
+**What this computes.** Samples from a mixture of Gaussians, the generative model of
+Module 6, with two independent random streams: one for which component each sample
+comes from, one for the Gaussian noise.
+
+Implement `sample_gaussian_mixture(key, weights, means, scales, n)`. Split the key once
+into a key for component labels and a key for the Gaussian noise. Draw labels with
+`jax.random.categorical(k_z, jnp.log(weights), shape=(n,))`, then
+`x = means[z] + scales[z] * eps`.
+
+Sanity check: with the weights, means and scales from the test file, the sample mean of
+200 000 draws is $0.2(-3) + 0.5(0) + 0.3(4) = 0.6$ to two decimals.
+
+```bash
+pytest tests/m01 -k step4
+```
+
+You should see 3 passed: identical output for identical keys, different output for a
+different key, and moments within four Monte Carlo standard errors of the exact values.
+
+### Step 5 — Recurrences with `lax.scan`
+
+**What this computes.** Two sequential computations written as scans: a toy Markov
+chain, and the running log-sum-exp from the Background. Both are shapes you will reuse:
+the AR(1) scan is the skeleton of every sampler on Day 3, and the running reduction is
+how Module 5 does streaming Bayesian updates.
+
+Implement `ar1_simulate(key, phi, sigma, n, x0)`: draw all `n` noise variables with a
+single `jax.random.normal(key, (n,))`, then scan `x_t = phi x_{t-1} + sigma eps_t`.
+Implement `cumulative_logsumexp(a)` with the running `(max, rescaled sum)` carry
+described in the background; the initial carry is `(-inf, 0.0)`.
+
+Sanity check: `ar1_simulate(key, 0.8, 1.0, 200_000)[1000:].var()` is close to $2.78$;
+`cumulative_logsumexp(jnp.array([0., 0., 0.]))` prints $(0, \log 2, \log 3) = (0, 0.693, 1.099)$.
+
+```bash
+pytest tests/m01 -k step5
+```
+
+You should see 3 passed. The AR(1) test compares against a Python loop over the same
+noise, so the order in which you consume the key matters.
+
+### Step 6 — Pytrees
+
+**What this computes.** One gradient step on an arbitrary nested parameter structure,
+and its norm. Every optimiser from Module 8 on applies updates this way to dictionaries
+of weights, and the handler-based language of Module 12 stores parameters as pytrees.
+
+Implement `tree_sgd_step(params, grads, lr)` with `jax.tree_util.tree_map` and
+`tree_l2_norm(tree)` over `jax.tree_util.tree_leaves`. Structure must be preserved
+exactly: dicts stay dicts, tuples stay tuples.
+
+Sanity check: `tree_l2_norm({"a": jnp.ones(3), "b": (jnp.array(2.0),)})` prints
+$\sqrt{3 + 4} = 2.6458$.
+
+```bash
+pytest tests/m01 -k step6
+```
+
+You should see 3 passed.
+
+## Checkpoint
+
+::: {.callout-tip title="Checkpoint"}
+```bash
+pytest tests/m01
+```
+18 tests pass. Commit or copy your `workshop/m01_jax.py`; Modules 2b and 3 onward
+assume these idioms without comment. Before moving on, say in one sentence each why
+inference code needs `grad`, `vmap`, `scan` and explicit keys.
+:::
+
+## Challenge
+
+::: {.callout-note title="Challenge"}
+1. Write `cumulative_logsumexp` a second time using `jax.lax.associative_scan` with
+   the binary operator $(m_1, s_1) \oplus (m_2, s_2)$ that merges two shifted sums.
+   Compare the compiled HLO size and the wall-clock time for $n = 10^6$ against the
+   sequential scan.
+2. Make `newton_minimize` stop early when $\|\nabla f\| < 10^{-10}$ using
+   `lax.while_loop`, and explain why the trajectory can no longer be returned as a
+   fixed-shape array.
+3. Reuse the same key for the labels and the noise in Step 4 on purpose, and find a
+   moment of the resulting distribution that is wrong. Explain why the sample mean is
+   still correct.
+:::
+
+## Going deeper
+
+- JAX documentation: "Autodiff Cookbook", "Pseudo Random Numbers", and
+  "Control flow and logical operators with JIT". Read the random-numbers page in full;
+  it explains the design decision behind explicit keys.
+- Blondel and Roulet, *The Elements of Differentiable Programming* (2024), Part II, for a
+  careful account of forward and reverse mode and what `jacfwd`/`jacrev` compute.
+- Baydin, Pearlmutter, Radul and Siskind, "Automatic Differentiation in Machine
+  Learning: a Survey", *JMLR* 18 (2018).
+- Goldberg, "What Every Computer Scientist Should Know About Floating-Point
+  Arithmetic", *ACM Computing Surveys* 23(1), 1991, for the overflow and underflow
+  behaviour behind `logsumexp`.
+
+## Troubleshooting
+
+::: {.callout-warning title="Troubleshooting"}
+**`logsumexp` returns `nan` for all-`-inf` input.** You subtracted an infinite max.
+Replace non-finite shifts with 0 before subtracting.
+
+**`ConcretizationTypeError` in `newton_minimize`.** You used `n_steps` in a Python
+construct inside a jitted function without marking it static, or used Python `if` on
+a traced value. Traced values have shapes, not values, at compile time.
+
+**Step 4 moments are correct but the determinism test fails.** You draw fresh keys from
+a global state somewhere, or consume keys in a different order on each call.
+
+**Step 4 moments are wrong but the determinism test passes.** You reused one key for
+labels and noise. The samples are reproducible and biased.
+
+**AR(1) test fails by a small amount everywhere.** You drew noise inside the scan
+body with a fresh split per step. The test expects one `jax.random.normal(key, (n,))`
+call, so the sequence of noise values differs.
+
+**Pytree structure mismatch.** `tree_map` with a list and a tuple of the same length
+raises; your grads and params must have identical container types.
+
+**"My `vmap` version gives the same numbers as a loop, so why bother?"** Time both on
+$10^5$ rows. The loop re-enters Python $10^5$ times; the `vmap` is one compiled kernel.
+On Day 3 that is the difference between a sampler that runs in seconds and one that runs
+overnight.
+:::

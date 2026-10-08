@@ -1,0 +1,617 @@
+---
+title: "Track C — Structural causal models and counterfactual inference"
+---
+
+## Overview
+
+**Why this track exists.** Everything on Days 1 to 4 answered questions of the form
+"given what I observed, what is plausible?". Many decisions need a different kind of
+question: "what would happen if I *did* something?" and "what would have happened last
+week if I had done something else?". These are not conditional probabilities, and a
+model that only represents the joint distribution of the data cannot answer them. A
+structural causal model adds one ingredient, a direction of mechanism, and with it
+both questions become computable. The second one, the counterfactual, turns out to be
+a Bayesian inference problem over the model's noise variables, which means the
+probabilistic programming language and the inference engines you built on Days 2 to 4
+answer it with no new algorithms. This track builds the two missing primitives
+(`deterministic` and `do`), writes a marketing model as a program, and answers all
+three kinds of question on it, checking each against the closed form that a
+linear-Gaussian model provides.
+
+**What you'll build:** in `workshop/m15c_scm.py`, a `deterministic` primitive and a `do`
+handler for the Module 12 effect-handler PPL; the ad-spend structural causal model
+(seasonality, spend, traffic, conversions) written as a program; interventional versus
+observational effects with the back-door adjustment; Pearl's abduction–action–prediction
+counterfactual with exact abduction when the week is fully observed, and with
+posterior inference through the Module 13 engines when seasonality and conversions are
+not; and a twin network answering "what is the probability that halving spend would have
+pushed conversions below target". Every answer is checked against the closed form that
+the linear-Gaussian structure provides.
+
+**Estimated time:** 7 hours (about 2 h reading and derivation, 4 h building through
+Step 5, 1 h report).
+
+**Prerequisites:** [Module 12](../day4/m12-effect-handlers.qmd),
+[Module 13](../day4/m13-ppl-inference.qmd). Module 2's `gaussian_condition` is reused.
+The vocabulary of posterior and posterior expectation is from
+[Module 2b](../day0/m02b-foundations.qmd) and the [glossary](../reference/glossary.qmd);
+no prior exposure to causal inference is assumed.
+
+**Dataset:** `data.AdSpendSCM` and `data.ad_spend_observational()` (2 000 weeks of
+seasonality $S$, ad spend $A$, site traffic $T$ and conversions $C$, all standardised
+and centred at zero, with the true noise values included so you can check abduction
+exactly). Coefficients: $a_s = 0.8$, $b_s = 0.5$, $b_a = 1.5$, $c_t = 0.6$, $c_s = 0.3$,
+noise standard deviations $\sigma_a = 1.0$, $\sigma_t = 0.7$, $\sigma_c = 0.5$.
+
+## Learning objectives
+
+By the end of this track you can:
+
+1. Distinguish observation, intervention and counterfactual questions with a concrete
+   example of each, and explain why the second two cannot be answered from the joint
+   distribution of the data alone.
+2. Write an SCM as a probabilistic program in which noise variables are `sample` sites
+   and mechanisms are `deterministic` sites, and explain why that split is what makes
+   interventions and counterfactuals handler operations.
+3. Implement `do` as a Messenger and show on a trace that an intervention removes the
+   intervened node's own mechanism while every descendant recomputes.
+4. Derive the confounding bias of the observational regression of $C$ on $A$ in closed
+   form, compute it, and recover the causal effect by back-door adjustment on $S$.
+5. Carry out abduction–action–prediction two ways: exactly by inverting the mechanisms,
+   and by posterior inference over the exogenous noise with HMC or VI from Module 13;
+   and build a twin network to compute a counterfactual probability.
+
+## Background
+
+### The problem in plain terms
+
+A marketing team logs, every week, the seasonality index $S$ (a known external
+demand signal), the ad spend $A$, the resulting site traffic $T$ and the conversions
+$C$. Three questions come up, and they sound alike.
+
+1. **Observation.** "In weeks when spend was high, how high were conversions?" This is
+   $\E[C \mid A = a]$, a conditional expectation, and a regression answers it.
+2. **Intervention.** "If we *set* next week's spend to $a$, what conversions should we
+   expect?" This is written $\E[C \mid \mathrm{do}(A = a)]$. It is not the regression,
+   because in the logged data high spend happened in high-season weeks, when
+   conversions would have been high anyway. Setting spend by decree breaks that link.
+3. **Counterfactual.** "Last week we spent $A = 0.52$ and got $C = 0.23$. What would
+   conversions have been had we spent half as much?" This is about a specific week
+   whose particular circumstances (its seasonality, its random fluctuations) we want to
+   keep fixed while changing one thing. It is written $C_{A = a'}$ given the facts.
+
+The joint distribution $p(s, a, t, c)$ answers only the first. The second needs to know
+which variables cause which: the same joint distribution is consistent with "spend
+drives traffic" and with "traffic drives spend", and the two give different answers to
+question 2. The third needs more still: a way to hold fixed the unobserved particulars
+of one week. A structural causal model supplies both, and this track shows that once
+you have it, question 3 is a posterior computation you already know how to do.
+
+### Definitions
+
+| Term | Meaning |
+|---|---|
+| exogenous variables $\mathbf U$ | the noise terms, one per variable, independent, with a known distribution |
+| endogenous variables $\mathbf V$ | the modelled quantities $S, A, T, C$ |
+| mechanism $f_i$ | the deterministic function giving $V_i$ from its parents and its own noise $U_i$ |
+| structural causal model (SCM) | the set of mechanisms plus the noise distribution |
+| causal graph | the DAG with an edge from each parent to each child; here $S \to A \to T \to C$, $S \to T$, $S \to C$ |
+| intervention $\mathrm{do}(X = x)$ | replace $X$'s mechanism by the constant $x$; leave the rest |
+| confounder | a common cause of the treatment and the outcome, here $S$ for $A$ and $C$ |
+| back-door adjustment | recovering an interventional effect from observational data by conditioning on confounders |
+| abduction | inferring the noise values of a specific unit from what was observed about it |
+| counterfactual | the value a variable would have taken under an intervention, with the unit's noise held fixed |
+| twin network | one graph with a factual and a counterfactual copy of the endogenous variables sharing the noise |
+
+### The model as equations and as a program
+
+An SCM $\mathcal M = (\mathbf U, \mathbf V, \mathbf F, P_{\mathbf U})$ specifies, for
+each endogenous variable, a mechanism $V_i = f_i(\mathrm{pa}_i, U_i)$. The ad-spend
+model is
+
+$$
+S = U_S,\qquad A = a_s S + U_A,\qquad T = b_s S + b_a A + U_T,\qquad C = c_t T + c_s S + U_C,
+$$
+
+with $U_S \sim \mathcal N(0,1)$, $U_A \sim \mathcal N(0, \sigma_a^2)$,
+$U_T \sim \mathcal N(0, \sigma_t^2)$, $U_C \sim \mathcal N(0, \sigma_c^2)$ independent.
+Read the arrows: season drives spend (the team spends more in high season), season and
+spend drive traffic, traffic and season drive conversions. The noise terms are
+everything else that moved each variable that week: a competitor's campaign, a site
+outage, a viral post.
+
+Because every mechanism is linear, substituting each equation into the next gives
+$\mathbf x = (S, A, T, C) = M\mathbf u$ for a lower-triangular $M$:
+
+$$
+M = \begin{pmatrix} 1 & 0 & 0 & 0 \\ 0.8 & 1 & 0 & 0 \\ 1.7 & 1.5 & 1 & 0 \\ 1.32 & 0.9 & 0.6 & 1 \end{pmatrix},
+\qquad
+\mathbf x \sim \mathcal N(0, M D M^\top),\quad D = \diag(1, \sigma_a^2, \sigma_t^2, \sigma_c^2).
+$$
+
+The row for $T$, for instance, is $T = (b_s + b_a a_s)S + b_a U_A + U_T = 1.7\,U_S + 1.5\,U_A + U_T$.
+This matrix is what makes every answer in the track checkable: the model is a
+Gaussian with a known covariance, so conditioning (Module 2) gives exact references.
+
+As a program, the four noise variables are `sample` sites and $A$, $T$, $C$ are
+`deterministic` sites. A deterministic message carries `type = "deterministic"`,
+`fn = None`, `is_observed = True` and its value. Module 12's handlers already behave
+correctly on it: `seed`, `condition` and `replay` act only on `"sample"` messages,
+`log_density` sums only `"sample"` sites, and `trace` records everything. The one
+discipline the model author must keep is to compute each descendant from the value the
+primitive *returns*, not from the local expression, since a handler may have replaced
+it. That discipline is the whole mechanism by which `do` works.
+
+### Interventions as surgery on one equation
+
+The joint distribution factorises along the graph:
+
+$$
+p(s, a, t, c) = p(s)\,p(a \mid s)\,p(t \mid s, a)\,p(c \mid t, s),
+$$
+
+one factor per mechanism, each factor induced by the corresponding noise term. The
+intervention $\mathrm{do}(A := a)$ deletes $A$'s mechanism and replaces it by the
+constant $a$. Every other mechanism is untouched, so every other factor is untouched;
+only $p(a \mid s)$ disappears and $a$ becomes a fixed input to the factors that
+mention it:
+
+$$
+p(s, t, c \mid \mathrm{do}(A = a)) = p(s)\,p(t \mid s, a)\,p(c \mid t, s).
+$$
+
+This is the truncated factorisation. Note what it is *not*: it is not
+$p(s, t, c \mid a) = p(s \mid a)\,p(t \mid s, a)\,p(c \mid t, s)$, which keeps the
+factor $p(s \mid a)$ and thereby lets observing a high spend raise the belief that the
+season was high. Under an intervention, the season is whatever it is; the spend tells
+you nothing about it, because you chose the spend.
+
+As a handler, `do` overwrites the value of the intervened message. For an endogenous
+node this is enough: the descendants read the returned value, so they recompute with
+$a$. For a noise node the site must also stop being a random variable: `do` converts it
+to a deterministic message so `seed` does not draw it and `log_density` does not
+score it.
+
+### Observation is not intervention: the numbers
+
+![Left: the ad-spend graph. Season $S$ drives spend $A$, traffic $T$ and conversions $C$; spend drives traffic; traffic drives conversions. Centre: the graph under $\mathrm{do}(A = a)$, with the arrow into $A$ cut. Right: the twin network of a later section, two copies of the mechanisms sharing every noise node, with the intervention applied to one copy.](../figures/m15c_dags.png)
+
+**Predict before reading on.** The causal effect of spend on conversions runs through
+traffic: $c_t b_a = 0.6 \times 1.5 = 0.90$ conversions per unit of spend. A manager
+regresses logged conversions on logged spend. Will the slope be above $0.90$, below it,
+or equal to it, and roughly by how much? Use the graph: which other path connects $A$
+and $C$?
+
+::: {.callout-note collapse="true" title="Answer"}
+Above: about $1.19$, a third too high. Spend and conversions share the cause $S$, and
+when you merely observe high spend you have also learned that it is probably high
+season, which raises conversions through two paths that have nothing to do with the
+spend itself. The derivation follows.
+:::
+
+Compute both quantities for this model. Substitute the mechanisms to express $C$ in
+terms of $A$ and the noise:
+$C = (c_t b_s + c_s)S + c_t b_a A + c_t U_T + U_C$. The regression slope of $C$ on $A$
+is $\mathrm{Cov}(A, C)/\mathrm{Var}(A)$. Using $A = a_s S + U_A$ with
+$\mathrm{Var}(A) = a_s^2 + \sigma_a^2$ and $\mathrm{Cov}(A, S) = a_s$,
+
+$$
+\frac{\mathrm{Cov}(A, C)}{\mathrm{Var}(A)}
+= \frac{(c_t b_s + c_s)\,\mathrm{Cov}(A, S) + c_t b_a\,\mathrm{Var}(A)}{\mathrm{Var}(A)}
+= c_t b_a + \frac{(c_t b_s + c_s)\,a_s}{a_s^2 + \sigma_a^2}.
+$$
+
+The first equality expands $\mathrm{Cov}(A, C)$ term by term ($U_T$ and $U_C$ are
+independent of $A$ and drop out); the second divides. The interventional slope is
+$\frac{\dd}{\dd a}\E[C \mid \mathrm{do}(A = a)] = c_t b_a$, because under the truncated
+factorisation $S$ keeps its marginal mean of zero and only the direct path through $T$
+remains. The extra term is the **confounding bias**: the back-door path
+$A \leftarrow S \rightarrow \{T, C\}$ is open when you merely observe $A$.
+
+With the dataset's coefficients: causal effect $c_t b_a = 0.6 \times 1.5 = 0.90$, bias
+$(0.3 + 0.3)\times 0.8 / (0.64 + 1) = 0.293$, so the regression slope is $1.19$. On the
+2 000 logged weeks the least-squares slope is $1.188$. A manager who read the
+regression as the return on spend would overestimate it by a third, and the error is
+not sampling noise: it does not shrink with more weeks.
+
+![Conversions against spend for 2 000 logged weeks, coloured by the season index. The regression line has slope $1.19$. The causal slope of $0.90$ is drawn through the same centre. Within any one colour band the points follow the shallower slope; the steeper overall slope comes from high-season weeks sitting high on both axes.](../figures/m15c_regression_vs_causal.png){width=70%}
+
+The back-door adjustment recovers the causal effect from the same observational data.
+Given $S$, the only remaining variation in $A$ is $U_A$, which is independent of
+everything else; so within a season, spend is as good as randomly assigned, and the
+coefficient of $A$ in the regression of $C$ on $(A, S)$ is the causal effect. Formally,
+
+$$
+\E[C \mid \mathrm{do}(A = a)] = \sum_s p(s)\,\E[C \mid A = a, S = s],
+$$
+
+which averages the within-season regression over the marginal of the season rather
+than over its conditional given spend. On the dataset the coefficient of $A$ in the
+regression on $(1, A, S)$ is $0.897$, against the true $0.90$. $S$ satisfies the
+back-door criterion for this graph: it blocks the only path from $A$ to $C$ that
+enters $A$ through an arrow pointing into it.
+
+### Counterfactuals: the three steps, with one week's numbers
+
+"Given what happened in week $i$, what would $C$ have been had spend been $a'$?" is
+answered by Pearl's procedure:
+
+1. **Abduction**: compute the posterior over $\mathbf U$ given the observed facts of
+   that week.
+2. **Action**: replace the mechanism of $A$ by $a'$.
+3. **Prediction**: push the posterior over $\mathbf U$ through the modified mechanisms.
+
+Take the first week of the dataset: $S = 0.126$, $A = 0.520$, $T = 1.439$, $C = 0.225$.
+When all four are observed, abduction is exact because each mechanism is additive in
+its own noise and can be inverted:
+
+$$
+U_A = A - a_s S = 0.520 - 0.101 = 0.419,\quad
+U_T = T - b_s S - b_a A = 1.439 - 0.063 - 0.780 = 0.596,\quad
+U_C = C - c_t T - c_s S = 0.225 - 0.863 - 0.038 = -0.676.
+$$
+
+Traffic that week was 0.6 standard deviations above what season and spend explain;
+conversions were 1.35 noise standard deviations below what traffic and season
+explain. Now act: set $A' = 0.260$, half the spend. Predict by re-running the
+mechanisms with the same noise:
+
+$$
+T' = 0.5 \times 0.126 + 1.5 \times 0.260 + 0.596 = 1.049,\qquad
+C' = 0.6 \times 1.049 + 0.3 \times 0.126 - 0.676 = -0.009.
+$$
+
+Halving spend would have cost $0.225 - (-0.009) = 0.234$ in conversions. That is
+exactly $c_t b_a (A - A') = 0.9 \times 0.26$, and the noise cancelled. This is a
+general fact about linear SCMs worth pausing on: **once the outcome is observed, the
+counterfactual under a different cause is deterministic**, $C_{a'} - C = c_t b_a (a' - A)$
+whatever the noise, because the noise enters additively and is the same in both
+worlds. People find this surprising; it says that for a linear model, the
+counterfactual question about a fully observed week has no uncertainty at all, and
+that the interesting counterfactuals are the ones where something relevant was not
+observed.
+
+### Abduction as Bayesian inference
+
+Take a week where spend $A$ and traffic $T$ are logged but conversions are not yet
+attributed and the seasonality index is unavailable. Abduction is now a posterior over
+$(S, U_C)$ given $(A, T)$: $U_C$ keeps its prior (nothing observed depends on it), and
+$S$ is informed by both $A$ and $T$, since both are partly driven by season. This is an
+ordinary Bayesian inference problem: unknowns $(S, U_C)$, data $(A, T)$, model given by
+the mechanisms.
+
+The only question is how to write "we observed $A$" in the PPL, since $A$ is a
+deterministic site with no density. Because $A = a_s S + U_A$ is additive in $U_A$,
+observing $A$ is the same event as observing $U_A = A - a_s S$, and the change of
+variables has unit Jacobian. The same holds for $U_T$.
+
+::: {.callout-important title="Jacobian check"}
+This is the [change of variables of Module 2b](../day0/m02b-foundations.qmd#sec-jacobian)
+in its simplest case: the map $U_A \mapsto A = a_s S + U_A$ is a shift, its derivative
+is one, and the log-Jacobian is zero. That is what licenses writing the observation of
+$A$ as an observation of $U_A$ with no correction. If a mechanism were $A = \exp(a_s S + U_A)$
+instead, the implied-noise trick would need a $-\log A$ term, and the checker would
+tell you so:
+
+```python
+from workshop.jacobian_check import check_change_of_variables
+log_p_u = lambda u: jss.norm.logpdf(u, 0.0, scm.sd_a)
+s = 0.126
+log_p_a = lambda a: log_p_u(a - scm.a_s * s)                   # claimed density of A given S
+check_change_of_variables(log_p_u, lambda a: a - scm.a_s * s, log_p_a, jnp.linspace(-2, 2, 5))  # zeros
+```
+:::
+
+So the abduction model writes the observations as *implied noise*:
+
+```python
+S = sample("S", Normal(0., 1.))
+sample("U_A", Normal(0., sd_a), obs=A - a_s * S)
+sample("U_T", Normal(0., sd_t), obs=T - b_s * S - b_a * A)
+sample("U_C", Normal(0., sd_c))
+```
+
+This is a Module 13 model with two latent sites, and HMC or SVI on it *is* abduction.
+The prediction step runs the SCM under `substitute` of each posterior noise draw and
+`do` of the action, giving posterior samples of $C_{a'}$. Days 2 and 3 were building
+the engine for this step without saying so.
+
+The reference answer is Gaussian. Condition $(S, A, T) \sim \mathcal N(0, \Sigma)$ on
+$(A, T)$ with Module 2's `gaussian_condition` to get $S \mid A, T$, and note
+$T_{a'} = T + b_a(a' - A)$ (the traffic noise is pinned by the observed traffic). Then
+
+$$
+C_{a'} \mid A, T \sim \mathcal N\!\Big(c_t\big(T + b_a(a' - A)\big) + c_s\,\E[S \mid A, T],\;
+c_s^2\,\mathrm{Var}[S \mid A, T] + \sigma_c^2\Big).
+$$
+
+For week one with $A = 0.520$, $T = 1.439$ and $a' = 0.260$: $\E[S \mid A, T] = 0.505$,
+$\mathrm{Var}[S \mid A, T] = 0.466$, so $C_{a'} \sim \mathcal N(0.781, 0.540^2)$.
+Compare with the fully observed answer of $-0.009$: not knowing that conversions were
+unusually low that week ($U_C = -0.676$) moves the counterfactual mean up by 0.79 and
+gives it a spread of 0.54, almost all of it from $\sigma_c$. The posterior over $S$ has
+tightened from variance 1 to 0.47 by observing spend and traffic.
+
+### Twin networks
+
+Balke and Pearl's construction puts the factual and the counterfactual world in one
+graph that shares the noise nodes. In the PPL it is one program with sites $A, T, C$
+and $A_{cf}, T_{cf}, C_{cf}$, all computed from the same $S, U_A, U_T, U_C$, with `do`
+applied to $A_{cf}$ only. The two copies agree exactly when there is no intervention,
+which is the test that the noise is shared. Conditioning on the factual observations
+and running Module 13 inference on the twin network gives posterior samples of $C_{cf}$
+directly, and any counterfactual probability such as $P(C_{cf} < c^* \mid A, T)$ is a
+Monte Carlo average over them. It is the same computation as the previous section,
+packaged so that factual and counterfactual quantities can be compared draw by draw.
+
+The alternative to implied-noise observation is a soft observation,
+`sample("A", Normal(a_s S + U_A, 1e-2), obs=A)`, with all four noise sites latent. It is
+general (it needs no inversion of the mechanism) but it creates a posterior that is a
+thin ridge in a rotated direction, which diagonal-mass HMC and mean-field VI both handle
+poorly. Use it only when a mechanism cannot be inverted, and then with a dense mass
+matrix or a flow (Track A).
+
+### Why this matters
+
+The three-level distinction (Pearl's "ladder of causation") is the organising idea of
+modern causal inference, and the three-step counterfactual procedure is how it is
+computed. Expressing SCMs as probabilistic programs is the approach of Tran and Blei
+(2018) and of the causal extensions of Pyro and NumPyro: the `do` handler you write is
+the same primitive those systems provide, and the observation that abduction is
+posterior inference over noise is what lets general inference engines answer
+counterfactual queries in non-linear models where no closed form exists. In product
+analytics the confounding example here is the standard failure of attributing outcomes
+to spend from logs alone, and the back-door adjustment is the standard fix when the
+confounder is measured.
+
+### Common misconceptions
+
+- **"$\mathrm{do}(A = a)$ is the same as conditioning on $A = a$."** Conditioning keeps
+  $p(s \mid a)$ and lets the spend inform the season; intervening deletes that factor.
+  The numbers differ by the confounding bias, 0.29 here.
+- **"Counterfactuals need randomised data."** They need a mechanism model. The
+  randomised experiment is one way to *learn* the mechanism's effect; given the SCM,
+  observational logs plus abduction answer counterfactual questions.
+- **"The SCM is just a regression."** A regression is a conditional expectation and
+  is symmetric in what it can be run on; an SCM has a direction per edge and a noise
+  term per variable, and both are needed for questions 2 and 3.
+- **"The counterfactual should always be uncertain."** For a linear model with the
+  outcome observed it is a point; uncertainty enters only through what was not observed.
+- **"Abduction is a new kind of inference."** It is posterior inference over the noise
+  variables; the only new idea is that the noise, not the parameters, is the unknown.
+
+## Steps
+
+Every step edits `workshop/m15c_scm.py`.
+
+### Step 1 — The `deterministic` primitive and the SCM program
+
+**What this computes.** A message type that records a computed value in the trace
+without contributing to the density, and the SCM written so that every descendant
+reads the values the primitives return.
+
+Implement `deterministic(name, value)`: return `value` if the handler stack is empty,
+otherwise build a message with `_new_message("deterministic", name, value=value,
+is_observed=True)`, pass it through `apply_stack`, and return `msg["value"]`.
+
+Implement `ad_spend_scm(scm)` with the four noise sites as `sample` sites and $A$, $T$,
+$C$ as `deterministic` sites, each computed from returned values. Implement
+`run_scm(model, key, n, *args)` as a `jax.vmap` over keys of a seeded trace that returns
+every site's value, and `structural_matrix(scm)` returning $M$ and the noise standard
+deviations.
+
+Sanity check: `structural_matrix(AdSpendSCM())[0]` is the lower-triangular matrix in the
+Background, with last row `[1.32, 0.9, 0.6, 1.0]`.
+
+```bash
+pytest tests/m15c -k step1
+```
+
+You should see 3 passed: `log_density` ignores deterministic sites; a seeded trace
+satisfies the structural equations exactly; and the sample covariance of 20 000 draws
+matches $M D M^\top$ within Monte Carlo error.
+
+### Step 2 — The `do` handler
+
+**What this computes.** The surgery of the Background as a handler, and the three
+slopes (observational, back-door, causal) that quantify confounding on the dataset.
+
+Implement `do.process_message`: if the site is intervened, set its value to the
+intervention; if it was a `"sample"` message, change its type to `"deterministic"`, set
+`fn = None`, `key = None`; set `is_observed = True` and `intervened = True`.
+
+Then implement `interventional_samples`, `observational_slope` (least squares),
+`backdoor_slope` (coefficient of $A$ in the regression on $(1, A, S)$ via
+`jnp.linalg.lstsq`), `causal_effect` and `confounding_bias` from the Background.
+
+Sanity check: `causal_effect(AdSpendSCM())` is `0.9` and `confounding_bias(AdSpendSCM())`
+is `0.2927`; on `ad_spend_observational()`, `observational_slope` is about `1.19` and
+`backdoor_slope` about `0.90`.
+
+```bash
+pytest tests/m15c -k step2
+```
+
+You should see 3 passed: $\mathrm{do}(A := 2)$ propagates to $T$ and $C$ and
+$\E[C \mid \mathrm{do}(A = 2)] = 2\,c_t b_a$; $\mathrm{do}(U_T := 0)$ removes $U_T$ from
+the density; and on the 2 000-week dataset the observational slope equals effect plus
+bias while the back-door slope equals the effect, each within sampling error.
+
+### Step 3 — Exact abduction and the point counterfactual
+
+**What this computes.** The three steps for a fully observed week: invert the
+mechanisms for the noise, substitute it, intervene, re-run.
+
+Implement `abduct_exact` (invert the three additive mechanisms), `run_with` (a traced
+run under `substitute`, no key needed when every noise site is given), `counterfactual`
+(abduct, then `run_with(do(ad_spend_scm, interventions), noise, scm)`) and
+`counterfactual_closed_form`.
+
+Sanity check: for the first dataset week with spend halved, `counterfactual` returns
+`C = -0.0087` and `T = 1.049`, and `counterfactual_closed_form` agrees; the difference
+from the observed $C = 0.225$ is $-0.234 = 0.9 \times (0.260 - 0.520)$.
+
+```bash
+pytest tests/m15c -k step3
+```
+
+You should see 3 passed: abduction recovers the dataset's true noise for all 2 000
+weeks; the abducted noise reproduces the observed week; and the counterfactual
+conversions under halved spend match the closed form, with
+$C_{a'} - C = c_t b_a (a' - A)$.
+
+### Step 4 — Abduction as posterior inference
+
+**What this computes.** The partially observed case: a two-latent-site model, its
+exact Gaussian answer via Module 2, and the same answer from Module 13's HMC and SVI.
+
+Implement `abduction_model(scm, obs)` with implied-noise observations of $A$ and $T$ and
+latent $S$, $U_C$. Implement `exact_counterfactual_C(scm, obs, a_new)` using
+`gaussian_condition` from Module 2 on the $(S, A, T)$ block of $M D M^\top$. Implement
+`counterfactual_posterior(scm, obs, interventions, key, method)`: Module 13 `hmc`
+(default) or `svi` on the abduction model; complete the noise with
+$U_A = A - a_s S$, $U_T = T - b_s S - b_a A$; then `jax.vmap` of `run_with` over the
+draws with `do` applied.
+
+Sanity check: `exact_counterfactual_C(scm, {"A": 0.520, "T": 1.439}, 0.260)` returns
+mean `0.781` and standard deviation `0.540`, the numbers of the Background; the HMC
+posterior mean of `C` from `counterfactual_posterior` should land within about 0.03 of
+it.
+
+```bash
+pytest tests/m15c -k step4
+```
+
+You should see 4 passed: the abduction model has exactly two latent sites; the exact
+conditional matches a least-squares regression of simulated $C_{a'}$ on $(1, A, T)$ with
+400 000 draws (an independent check of your Gaussian conditioning); and both the HMC and
+the SVI counterfactual posteriors match the exact mean within Monte Carlo error and the
+exact standard deviation within 30%.
+
+### Step 5 — Twin networks and a counterfactual probability
+
+**What this computes.** One program with both worlds, the posterior over it, and a
+probability statement about the counterfactual world.
+
+Implement `twin_network(scm, obs=None)` with the shared noise sites and the `_cf`
+copies, observing $U_A$, $U_T$ through their implied values when `obs` is given.
+Implement `twin_posterior` (Module 13 `hmc` on `do(twin_network, {"A_cf": a_new})`, then
+`run_with` per draw) and `probability_below(scm, obs, a_new, threshold, key)`.
+
+Sanity check: with `threshold` equal to the exact counterfactual mean `0.781`,
+`probability_below` returns about `0.5`; with the threshold at `0.781 + 2 * 0.540`
+it returns about `0.977`.
+
+![Posterior draws of the counterfactual $C_{a'}$ for week one with only spend and traffic observed, from HMC on the twin network, against the closed-form $\mathcal N(0.781, 0.540^2)$. The vertical line is the answer when conversions are also observed, $-0.009$: knowing that week's bad luck moves the counterfactual by nearly a full standard deviation.](../figures/m15c_counterfactual_posterior.png){width=65%}
+
+```bash
+pytest tests/m15c -k step5
+```
+
+You should see 3 passed: substituting a week's abducted noise reproduces the factual
+nodes while the counterfactual copies follow the intervention, and without intervention
+the two worlds coincide; the twin posterior's factual $A$, $T$ equal the observations and
+its $C_{cf}$ mean matches the exact Gaussian; and $P(C_{cf} < c^*)$ matches the normal
+CDF within 0.06.
+
+### Experiments for the report
+
+Pick one of the Track C prompts in the [report template](report-template.qmd):
+identifiability of the coefficients from observational data, the abducted posterior
+and counterfactual for a chosen week against the closed form, or counterfactual bias
+under a misspecified saturating traffic mechanism. The notebook
+`notebooks/m15c_scm.py` has the plots to start from.
+
+## Checkpoint
+
+::: {.callout-tip title="Checkpoint"}
+```bash
+pytest tests/m15c
+```
+16 tests pass in about 8 seconds. Write the report using the
+[template](report-template.qmd). Before you do, be able to state the three questions of
+the Background for a system you work on, and say which of them your current logs can
+answer.
+
+**Which expectation did you just compute?** $\E[C \mid A = a]$ (a conditional
+expectation, from the logs), $\E[C \mid \mathrm{do}(A = a)]$ (an expectation under the
+mutilated model), and the counterfactual $\E[C_{a'} \mid A, T]$, which is a posterior
+expectation over the noise terms pushed through the modified mechanisms: Day 3's
+sampler computing Day 5's quantity.
+:::
+
+## Challenge
+
+::: {.callout-note title="Challenge"}
+1. **Misspecified mechanism.** Generate data from a saturating traffic mechanism
+   $T = b_s S + T_{\max}\tanh(b_a A / T_{\max}) + U_T$ but keep the linear SCM for
+   abduction. Quantify the counterfactual bias in $C_{a'}$ as a function of $A$ and
+   explain which of the three steps fails.
+2. **Identifiability.** Write a parameter-learning model in which
+   $(a_s, b_s, b_a, c_t, c_s)$ and the noise scales are latent sites with priors and
+   the 2 000 weeks are observed through their implied noise. Fit it with Module 13
+   `svi`. Which coefficients are identified from $(A, T, C)$ alone when $S$ is
+   dropped from the data? Relate the answer to the back-door result of Step 2.
+3. **Mediation.** Define the natural direct and indirect effects of $A$ on $C$
+   through $T$ as nested counterfactuals, implement them with two `do` handlers in a
+   twin network (one world sets $A$, the other fixes $T$ at its value under the
+   reference spend), and verify $\mathrm{NDE} + \mathrm{NIE}$ equals the total effect
+   $c_t b_a (a' - a)$.
+:::
+
+## Going deeper
+
+- Pearl. *Causality: Models, Reasoning, and Inference.* 2nd edition, Cambridge University
+  Press, 2009. Chapter 1 (SCMs and interventions), Chapter 3 (the back-door criterion)
+  and Chapter 7 (counterfactuals and the three-step procedure).
+- Pearl, Glymour and Jewell. *Causal Inference in Statistics: A Primer.* Wiley, 2016.
+  The gentlest full treatment; Chapters 1 to 4 cover everything in this track.
+- Peters, Janzing and Schölkopf. *Elements of Causal Inference.* MIT Press, 2017.
+  Chapters 3 and 6.
+- Balke and Pearl. "Probabilistic Evaluation of Counterfactual Queries." *AAAI*, 1994.
+  The twin-network construction.
+- Pearl. "Causal Inference in Statistics: An Overview." *Statistics Surveys* 3, 2009.
+- Tran and Blei. "Implicit Causal Models for Genome-wide Association Studies." *ICLR*,
+  2018. Causal models expressed in a probabilistic programming system.
+
+## Troubleshooting
+
+::: {.callout-warning title="Troubleshooting"}
+**Intervention on $A$ has no effect on $T$ and $C$.** The model computed $T$ from the
+local expression `scm.a_s * S + U_A` instead of from the value `deterministic`
+returned. Always use the returned value.
+
+**`do` on a noise site changes the value but `log_density` still scores it.** You
+set the value but left the message type as `"sample"`. Convert the type to
+`"deterministic"` and set `fn = None`.
+
+**Flat posterior when conditioning on a deterministic node.** `condition` on $A$ or
+$T$ does nothing useful: those sites have no density. Observe the implied noise
+instead, as in `abduction_model`.
+
+**Soft-observation model: HMC divergences or an under-dispersed VI posterior.** The
+constraint $A \approx a_s S + U_A$ with a small observation scale makes a thin
+rotated ridge. Shrinking the scale sharpens the ridge and causes divergences;
+enlarging it biases the posterior. Prefer implied-noise observation.
+
+**Twin worlds disagree without any intervention.** The two copies draw their own
+noise. Noise must be sampled once and shared; only the `_cf` deterministic nodes are
+duplicated.
+
+**`unconstrain` reports four latent sites for the abduction model.** The implied
+noise sites were written as `sample(...)` without `obs=`; they must be observed.
+
+**The regression slope is treated as the causal effect.** $\E[C \mid A = a]$ and
+$\E[C \mid \mathrm{do}(A = a)]$ differ by the back-door bias; Step 2's test quantifies
+it. The interventional quantity is the one a budget decision needs.
+
+**The fully observed counterfactual came out with zero uncertainty and you assumed a
+bug.** It is correct for a linear SCM: with the outcome observed, the noise is pinned
+and the counterfactual is a point. Uncertainty appears only when something relevant
+is unobserved, which is why Step 4 drops $S$ and $C$.
+
+**You conditioned on $A$ in the twin network and expected $S$ to be unaffected.**
+Observing spend *does* inform the season in the factual world, and it should: the
+posterior over $S$ tightens. What must not happen is for the *intervened* copy's spend
+to inform anything, and `do` guarantees that by removing its mechanism.
+:::

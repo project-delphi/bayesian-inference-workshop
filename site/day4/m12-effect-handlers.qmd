@@ -1,0 +1,458 @@
+---
+title: "Module 12 — Execution traces and effect handlers"
+---
+
+## Overview
+
+**Why this module exists.** By now you have two inference engines: the variational
+engine of Module 8 and the Hamiltonian sampler of Modules 10 and 11. Each one consumed
+a hand-written log-density function, and each model needed a new one: the churn
+regression, the uplift hierarchy, the enzyme curve. Every time, you also wrote the
+code that turns parameters into a flat vector, draws from the prior, and fixes observed
+values. That bookkeeping is the same for every model, and it is where the bugs live. A
+probabilistic programming language (PPL) is the layer that does it once. The idea is
+one that engineers already know from middleware and interceptors: write the model as
+an ordinary function, make every random choice announce itself through a primitive,
+and let a stack of handlers decide what each announcement means. This module builds
+that layer in about 200 lines. Module 13 then runs both engines through it unchanged,
+Module 14 builds a VAE on it, and Capstone Track C adds causal interventions to it.
+
+**What you'll build:** a probabilistic programming language in
+`workshop/m12_handlers.py`. Models are plain Python functions that call
+`sample(name, dist)` and `param(name, init)`. Each call becomes a message that travels
+down a stack of handlers; handlers record it (`trace`), supply randomness (`seed`), fix
+its value (`condition`, `replay`, `substitute`) or hide it (`block`). The last step turns
+any model into a log joint density of its latent sites.
+
+**Estimated time:** 3 hours (about 1 hour reading, 2 hours building).
+
+**Prerequisites:** [Module 8](../day2/m08-bbvi-engine.qmd) (bijectors are reused as
+distribution supports), [Module 9](../day3/m09-hmc-core.qmd) (the regional-uplift target
+is the reference model), and the vocabulary of
+[Module 2b](../day0/m02b-foundations.qmd): [model](../reference/glossary.qmd#model),
+[prior](../reference/glossary.qmd#prior), [likelihood](../reference/glossary.qmd#likelihood),
+[posterior](../reference/glossary.qmd#posterior).
+
+## Learning objectives
+
+By the end of this module you can:
+
+1. Explain the message-passing design of Pyro and NumPyro: what a message carries, the
+   order in which handlers see it, and where the default behaviour lives.
+2. Trace by hand what happens to one `sample` call under `trace(seed(model, key))`.
+3. Implement `trace`, `seed`, `condition`, `replay`, `substitute` and `block` as
+   subclasses of one `Messenger` base class, each in under fifteen lines.
+4. Derive $\log p(z, x)$ for a model by substituting latent values and summing site
+   log densities, check it by hand on a two-site model, and show it is jit-able and
+   differentiable with respect to the latents.
+5. State why `replay` must not touch observed sites and why a per-site PRNG key is
+   assigned by position in execution order.
+
+## Background
+
+### The problem in plain terms
+
+A Bayesian [model](../reference/glossary.qmd#model) is a generative story: draw the
+unknowns from the prior, then draw the data given the unknowns. Written as code, it is
+a function that makes random choices in order. Here is the regional-uplift model of
+Module 9 in that form:
+
+```python
+def uplift_model(y, sigma):
+    mu  = sample("mu",  Normal(0.0, 5.0))
+    tau = sample("tau", HalfNormal(5.0))
+    eta = sample("eta", Normal(jnp.zeros(8), 1.0))
+    theta = mu + tau * eta
+    sample("y", Normal(theta, sigma), obs=y)
+```
+
+Every inference algorithm needs to do something different with those random choices.
+
+- To **simulate** from the prior, each `sample` should draw a value.
+- To **evaluate** the log joint density at a proposed set of unknowns, each `sample`
+  should take the proposed value and return its log density instead of drawing.
+- To **condition** on data, the `y` site should be pinned to the observations.
+- To **compare** a model run against a guide run (the ELBO of Module 8), the model's
+  `sample("z", ...)` should reuse the value the guide drew.
+- To **record** what happened, every `sample` should be logged with its name, its
+  distribution and its value.
+
+Without a PPL you write a separate function for each of these per model. The PPL
+makes `sample` a primitive whose meaning is decided at run time by whoever is
+listening. The model is written once; the algorithms are written once; they meet
+through the primitive.
+
+### Definitions
+
+| Term | What it is |
+|---|---|
+| **site** | one call to `sample` or `param`, identified by its name |
+| **latent site** | a `sample` site with no `obs`: an unknown to infer |
+| **observed site** | a `sample` site with `obs=`: data, whose value is fixed |
+| **message** | a plain `dict` describing one site: its type, name, distribution, value, whether it is observed, its PRNG key, and a `stop` flag |
+| **handler** (`Messenger`) | a context manager that sits on a global stack while active and gets to inspect and modify every message |
+| **trace** | an ordered dictionary of finished messages from one execution, keyed by site name |
+| **log joint** | $\log p(z, x) = \sum_{\text{sites}} \log p(\text{value} \mid \text{distribution})$, computed from a trace in which every latent has a value |
+
+A message is deliberately a dictionary rather than an object with methods. Handlers
+read and write fields; nothing is hidden, and you can print one.
+
+```python
+{"type": "sample", "name": "tau", "fn": HalfNormal(5.0), "value": None,
+ "is_observed": False, "key": None, "sample_shape": (), "stop": False, "init_value": None}
+```
+
+### The life of one `sample` call
+
+Take the expression `trace(seed(uplift_model, key)).get_trace(y, sigma)` and follow the
+call `sample("tau", HalfNormal(5.0))` through it.
+
+1. **Entering handlers.** `trace(...)` is a handler wrapping the function
+   `seed(uplift_model, key)`, which is itself a handler wrapping `uplift_model`. Calling
+   the outer one enters `trace` first (pushing it on `_HANDLER_STACK`), which calls the
+   inner one, which enters `seed`. The stack now reads `[trace, seed]` from bottom to
+   top, and `uplift_model(y, sigma)` starts running.
+2. **The primitive builds a message.** `sample("tau", HalfNormal(5.0))` creates the
+   dictionary above with `value = None` and `is_observed = False`, and hands it to
+   `apply_stack`.
+3. **Down the stack, innermost first.** `apply_stack` walks the stack from the top.
+   `seed.process_message` sees a latent sample with no key and sets
+   `msg["key"] = fold_in(key, 1)`: this is the second latent site in execution order, so
+   its counter value is 1 (`mu` got 0). Then `trace.process_message` runs and does
+   nothing; `trace` only acts on the way back up.
+4. **Default behaviour.** No handler set a value, so `apply_stack` draws
+   `msg["value"] = HalfNormal(5.0).sample(msg["key"])`. If no handler had supplied a key,
+   this is the point that raises `RuntimeError` naming the site. Randomness is never
+   implicit.
+5. **Back up the stack, in reverse.** `seed.postprocess_message` does nothing.
+   `trace.postprocess_message` stores a copy of the finished message under the name
+   `"tau"`, raising if that name was already recorded in this execution.
+6. **Return.** `sample` returns `msg["value"]`, and the model continues with `tau` bound
+   to a number.
+
+![The six stages as a picture. The message travels down the handler stack through each handler's `process_message`, reaches the default draw at the bottom, and comes back up through each `postprocess_message` in reverse order. `seed` acts on the way down; `trace` acts on the way up.](../figures/m12_message_flow.png){width=80%}
+
+The observed site `sample("y", Normal(theta, sigma), obs=y)` follows the same path with
+one difference: `value = y` and `is_observed = True` from the start, so step 4 does
+nothing and `seed` never assigns it a key. Observed sites consume no randomness.
+
+The design has two consequences worth stating. First, **names are the interface**: a
+trace is a dictionary keyed by name, `condition` and `substitute` look sites up by
+name, and `replay` matches a guide's sites to the model's by name. Two sites with the
+same name in one execution are an error. Second, **order matters only for keys**:
+`seed` numbers latent sites in execution order, so the same program with the same key
+always draws the same values, and a model with a loop must name its sites distinctly.
+
+### From a trace to the log joint, by hand
+
+Here is the smallest model in the module, and the calculation that Step 5 automates.
+
+```python
+def two_site_model(x):
+    mu = sample("mu", Normal(0.0, 1.0))
+    sample("x", Normal(mu, 0.5), obs=x)
+```
+
+The generative story is $\mu \sim \mathcal N(0, 1)$ and $x_i \sim \mathcal N(\mu, 0.5^2)$
+independently. The joint density of unknowns and data factorises along the story:
+
+$$
+\log p(\mu, x) = \log\mathcal N(\mu \mid 0, 1) + \sum_{i=1}^{3}\log\mathcal N(x_i \mid \mu, 0.5^2).
+$$
+
+Take $x = (0.3, -0.1, 0.5)$ and the proposed value $\mu = 0.2$. Using
+$\log\mathcal N(v \mid m, s^2) = -\tfrac12\big(\tfrac{v - m}{s}\big)^2 - \log s - \tfrac12\log 2\pi$
+with $\tfrac12\log 2\pi = 0.919$:
+
+| Site | Term | Value |
+|---|---|---|
+| `mu` | $-\tfrac12(0.2)^2 - 0 - 0.919$ | $-0.939$ |
+| `x[0]` | $-\tfrac12(0.1/0.5)^2 + 0.693 - 0.919$ | $-0.246$ |
+| `x[1]` | $-\tfrac12(0.3/0.5)^2 + 0.693 - 0.919$ | $-0.406$ |
+| `x[2]` | $-\tfrac12(0.3/0.5)^2 + 0.693 - 0.919$ | $-0.406$ |
+| total | | $-1.996$ |
+
+`log_density(two_site_model, {"mu": 0.2}, x)` returns $-1.996$: it runs the model with
+`mu` substituted, records the trace, and sums `log_prob(value)` over the two sample
+sites, the observed one summing over its three elements. That is all the log joint
+is. Every number the inference engines of Days 2 and 3 consume is a sum like this
+one, and the PPL's only job is to assemble it from the program.
+
+### The handlers
+
+Each handler overrides one or both of the two hooks.
+
+| Handler | `process_message` (on the way down) | `postprocess_message` (on the way up) |
+|---|---|---|
+| `trace` | nothing | store `dict(msg)` under `msg["name"]` |
+| `seed(key)` | latent sample with no key: `key = fold_in(key, i)`, $i$ the site counter | nothing |
+| `condition(data)` | if `name in data`: set value, `is_observed = True` | nothing |
+| `replay(trace)` | latent sample with `name in trace`: copy the trace's value | nothing |
+| `substitute(values)` | if `name in values` (sample or param): set value, leave `is_observed` alone | nothing |
+| `block(hide, expose)` | if hidden: `stop = True`, so outer handlers never see it | nothing |
+
+Two pairs are easy to confuse. `condition` marks a site *observed*: it becomes data,
+and `replay` will refuse to overwrite it. `substitute` sets a value but leaves the
+site *latent*: that is what `log_density` needs, because it wants the latent's log
+density included in the sum as a prior term, not treated as data. Likewise `replay`
+copies values from another execution's trace (the guide's), while `substitute` takes
+a plain dictionary of values you supply.
+
+### A worked example with numbers: the uplift model under `seed`
+
+Run `trace(seed(uplift_model, jax.random.key(0))).get_trace(y, sigma)` on the regional
+uplift data. The trace has four sites, in execution order:
+
+| Site | Type | Shape | Observed | Value under key 0 | $\sum\log p$ |
+|---|---|---|---|---|---|
+| `mu` | sample | `()` | no | $9.40$ | $-4.30$ |
+| `tau` | sample | `()` | no | $7.00$ | $-2.82$ |
+| `eta` | sample | `(8,)` | no | $(0.39, 1.17, -0.80, \dots)$ | $-9.45$ |
+| `y` | sample | `(8,)` | yes | the data: $(-0.18, -0.55, 0.19, 0.91, -1.61, 0.62, -0.91, 0.42)$ | $-415.80$ |
+
+`log_density` at these latent values returns $-432.35$, the sum of the last column.
+Read the numbers. The three latent terms are prior log densities and are modest. The
+observed term is enormous because a prior draw with $\mu = 9.4$ and $\tau = 7$ puts
+the regional effects $\theta_j = \mu + \tau\eta_j$ around $9$ percentage points when the
+data sit near $0$ with standard errors near $1$; the likelihood penalises that by
+hundreds of nats. This is a picture of why inference is needed: prior draws are
+terrible explanations of data, and the posterior is the set of values for which the
+`y` row stops dominating. It is also why Module 13 starts HMC from prior draws and
+relies on warm-up to move away from them.
+
+### Why this is the same object as Pyro and NumPyro
+
+Pyro's `poutine` and NumPyro's `handlers` modules are this design with more
+distributions, more handlers (`plate` for independence structure, `scale`, `mask`,
+`enum`) and more care about shapes. A NumPyro model is a Python function calling
+`numpyro.sample`; `numpyro.handlers.trace`, `seed`, `condition`, `substitute` and
+`block` have the same names and semantics as yours; and NumPyro's inference
+algorithms consume a flat log-density function built exactly as Module 13 builds it.
+The idea comes from programming-language research on algebraic effects, where
+`sample` is an *effect* and a `Messenger` is a *handler* for it. Nothing in the
+engines of Days 2 and 3 changes when the model comes from a program instead of a
+hand-written function; that is the test of the design.
+
+Why it costs nothing at run time: the handler stack is ordinary Python executed while
+JAX *traces* the function. The dictionaries, the loop over handlers and the name
+lookups all happen once, at trace time, and leave behind only the arithmetic of the
+`log_prob` calls in the compiled program. `log_density` therefore composes with
+`jax.jit`, `jax.grad` and `jax.vmap`, which Step 5 tests.
+
+### Why this matters later
+
+- **Module 13** traces a model once to discover its latent sites, lays them out in a
+  flat vector with the right bijectors, and hands `log_density` plus Jacobian terms to
+  Module 8's `fit` and Module 11's `run_chains`.
+- **Module 14** computes the VAE's ELBO as the difference between a model trace replayed
+  against a guide trace and the guide trace itself. No ELBO code mentions encoders.
+- **Track C** adds a `do` handler that overrides a site's value and marks it intervened,
+  which is all a causal intervention is at the level of the program.
+
+### Common misconceptions
+
+- **"The PPL does the inference."** It does the bookkeeping. Inference is the engines
+  you built on Days 2 and 3; the PPL turns a program into the function they consume.
+- **"Handlers are magic."** A handler is a context manager with two methods. The only
+  global state is a list. Print the stack and the messages when something is unclear.
+- **"An observed site is just a latent site with a known value."** It is not scored as
+  a prior term and it consumes no randomness; `replay` and `seed` skip it. The
+  `is_observed` flag is what separates data from unknowns in every algorithm.
+- **"`substitute` and `condition` do the same thing."** Both set a value; only
+  `condition` marks the site observed. `log_density` uses `substitute` precisely so the
+  latents' prior terms stay in the sum.
+
+## Steps
+
+Every step edits `workshop/m12_handlers.py`. The distributions (`Normal`, `HalfNormal`,
+`LogNormal`, `Gamma`, `Uniform`, `Bernoulli`) are provided; read them first. Each has
+`log_prob` (elementwise; the caller sums), `sample(key, sample_shape)` and a `support`
+bijector from Module 8 that Module 13 uses.
+
+### Step 1 — Messages, the stack and the two primitives
+
+**What this computes.** The dispatch loop of the Background: a message goes down the
+stack innermost-first, the default behaviour fills a missing value, and the message
+comes back up in reverse. `sample` and `param` build the message and return its
+value.
+
+Implement `apply_stack(msg)` as described, `sample(name, fn, obs=None, sample_shape=())`
+and `param(name, init_value)`. Both primitives return `msg["value"]`. With an empty
+stack, an observed sample returns `obs` and a param returns `init_value` without
+building a message.
+
+Sanity check in a REPL: `sample("x", Normal(0., 1.), obs=jnp.array(2.0))` with no
+handlers returns `2.0`; `sample("x", Normal(0., 1.))` with no handlers raises a
+`RuntimeError` whose message names the site `x`.
+
+```bash
+pytest tests/m12 -k step1
+```
+
+You should see 5 passed: a clear error for an unseeded latent, pass-through of observed
+values and params, the exact down/up visiting order with early stop, that the stack is
+popped after an exception, and that the default draw honours `sample_shape`.
+
+### Step 2 — `trace` and `seed`
+
+**What this computes.** `trace` turns an execution into data: the ordered dictionary of
+finished messages. `seed` is the only source of randomness, and it numbers latent sites
+in execution order so that one key reproduces one execution exactly.
+
+Implement `trace.postprocess_message` (raise on a duplicate name) and `trace.get_trace`.
+Implement `seed.process_message`: the $i$-th latent sample site without a key gets
+`jax.random.fold_in(self.key, i)`; reset the counter on `__enter__` (already done).
+
+Sanity check: `trace(seed(uplift_model, jax.random.key(0))).get_trace(y, sigma)` has
+keys `["mu", "tau", "eta", "y"]` in that order, `tr["mu"]["value"]` is about `9.40`,
+and `tr["y"]["is_observed"]` is `True`.
+
+```bash
+pytest tests/m12 -k step2
+```
+
+You should see 3 passed. Same key, same trace; different key, different trace; two
+sites with identical distributions get different draws.
+
+### Step 3 — `condition` and `replay`
+
+**What this computes.** `condition` turns latent sites into data. `replay` makes the
+model reuse the values a guide drew, which is how the ELBO of Module 14 lines up the
+model's and the guide's `z`.
+
+Implement both `process_message` methods. `replay` must skip observed sites: the data
+in the current execution wins over a stale value from the guide trace.
+
+Sanity check: `trace(condition(two_site_model, {"mu": jnp.array(0.2)})).get_trace(x)`
+needs no key, and its `"mu"` site has `is_observed = True`; the same call with
+`substitute` instead of `condition` has `is_observed = False`.
+
+```bash
+pytest tests/m12 -k step3
+```
+
+You should see 3 passed.
+
+### Step 4 — `substitute` and `block`
+
+**What this computes.** `substitute` fixes values without changing a site's status;
+`block` hides sites from handlers further out, which is how a guide's internal sites
+are kept out of a model trace.
+
+Implement `substitute.process_message` (sample *and* param sites; latents stay
+unobserved) and `block.process_message` using the `_hidden` helper.
+
+```bash
+pytest tests/m12 -k step4
+```
+
+You should see 3 passed, including that hidden sites are still executed (an inner
+`trace` sees them) and that `log_density` on a two-site model equals a hand-written
+sum. `log_density` is Step 5; this test exercises its substitute-and-trace skeleton,
+so implement Step 5 before running it if you prefer.
+
+### Step 5 — `log_density`
+
+**What this computes.** The sum from the two-site walkthrough: run the model with the
+latents substituted, record the trace, add up `log_prob(value)` over every sample site.
+The result is $\log p(z, x)$, the function every engine in this workshop consumes.
+
+Implement `log_density(model, values, *args, **kwargs)`: run
+`trace(substitute(model, values))`, sum `jnp.sum(fn.log_prob(value))` over sample sites,
+return the total and the trace.
+
+Sanity check: `log_density(two_site_model, {"mu": jnp.array(0.2)}, jnp.array([0.3, -0.1, 0.5]))[0]`
+is `-1.996`, the hand-computed total above.
+
+```bash
+pytest tests/m12 -k step5
+```
+
+You should see 3 passed. The regional-uplift model written as a program agrees with
+Module 9's hand-coded `uplift_noncentered_log_prob` up to an additive constant (Module 9
+drops Gaussian normalising constants) and exactly in gradient, once you add the
+$+\log\tau$ Jacobian that Module 9 includes because it works in $\log\tau$. Gradients
+with respect to the `values` dictionary come out as a dictionary.
+
+## Checkpoint
+
+::: {.callout-tip title="Checkpoint"}
+```bash
+pytest tests/m12
+```
+17 tests pass in about 3 seconds. `wc -l` on the core (everything below the
+distributions) should be near 200 lines. Modules 13, 14 and Capstone Track C import
+this file. Before moving on, be able to say in one sentence each what `trace`, `seed`,
+`condition`, `replay`, `substitute` and `block` do to a message, and why `condition`
+and `substitute` are not interchangeable.
+
+**Which expectation did you just compute?** None. This module computes
+$\log p(z, x)$ at a point, the integrand of every expectation on Days 2 and 3, and
+nothing else. That is the point: the PPL assembles the function; the engines you
+already built take the expectations.
+:::
+
+## Challenge
+
+::: {.callout-note title="Challenge"}
+1. Add a `plate(name, size)` handler that records the independence structure of a
+   site and use it to implement a `scale` handler that multiplies the log density of
+   subsampled sites by $N/B$, reproducing Module 8's `fit_svi` through the PPL.
+2. Add `enumerate` support for a single discrete latent with finite support: run the
+   model once per value, weight by the site's probability, and marginalise. Use it
+   to express the Module 6 mixture model as a program and compare the marginal
+   likelihood with the one obtained from CAVI's ELBO.
+:::
+
+## Going deeper
+
+- Bingham, Chen, Jankowiak, Obermeyer, Pradhan, Karaletsos, Singh, Szerlip, Horsfall and
+  Goodman, "Pyro: Deep Universal Probabilistic Programming", *JMLR* 20, 2019. The
+  mini-Pyro example in the Pyro repository is the direct ancestor of this module.
+- Phan, Pradhan and Jankowiak, "Composable Effects for Flexible and Accelerated
+  Probabilistic Programming in NumPyro", arXiv:1912.11554, 2019.
+- van de Meent, Paige, Yang and Wood, *An Introduction to Probabilistic Programming*,
+  arXiv:1809.10756, 2018, Chapters 3 and 4 on execution traces. The best first read on
+  what a trace is and why inference algorithms are defined on traces.
+- Plotkin and Pretnar, "Handlers of Algebraic Effects", *ESOP*, 2009, for the
+  programming-languages view of what a `Messenger` is.
+
+## Troubleshooting
+
+::: {.callout-warning title="Troubleshooting"}
+**A test fails and every later test fails too with strange values.** A handler was
+left on the stack by an earlier exception. `__exit__` must pop unconditionally; if
+you rewrote it, restore the `assert popped is self` line and make sure nothing can
+skip the pop.
+
+**Two latent sites get the same draw.** `seed` reused a key. Increment the counter
+on every latent site, and never derive keys from the site name alone (two models
+with the same names would then share randomness across executions).
+
+**`replay` reproduces the observed site's old value.** You replaced the value at an
+observed site. Check `is_observed` before copying from the guide trace.
+
+**`log_density` is wrong by exactly the prior term of one latent.** You used
+`condition` instead of `substitute` to fix the latents, so that site was marked
+observed. Both set a value; only `substitute` keeps the site latent. The prior term of
+a latent belongs in $\log p(z, x)$; it is not data.
+
+**`log_density` raises "needs a PRNG key".** A latent site is missing from `values`,
+or its name differs from the model's.
+
+**You expected a prior draw to be a reasonable starting point.** It is not, and the
+worked example shows why: under key 0 the observed site contributes $-416$ nats
+against $-17$ from the three priors together. Prior draws are what warm-up is for.
+
+**`TracerLeak` or "Abstract tracer value encountered where concrete value is
+expected".** You stored a traced value in a Python global or module attribute, for
+example by keeping a trace from inside `jax.jit` and reading it outside. Return
+traced values from the jitted function instead.
+
+**Gradient with respect to `values` is `None` or zero for one site.** That site's
+value was overwritten by a later handler (a `condition` on a latent name), or the
+distribution's `log_prob` casts the value to a non-differentiable type.
+
+**Duplicate-name error on a model that looks fine.** A loop calls `sample` with the
+same name every iteration. Use `f"x_{i}"` or a single vector-valued site.
+:::

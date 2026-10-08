@@ -1,0 +1,118 @@
+---
+title: "Bayesian Inference from Scratch"
+---
+
+A five-day, hands-on workshop in modern approximate inference for engineers who have
+not done Bayesian inference before. You build every piece of machinery yourself in JAX:
+an exponential-family library with closed-form divergences, black-box variational
+inference, Hamiltonian Monte Carlo with adaptation and diagnostics, an effect-handler
+probabilistic programming language, and one of three research-level capstones. Nothing
+is hidden behind a probabilistic programming framework. The only dependencies are JAX,
+NumPy, SciPy and Matplotlib.
+
+## Who this is for
+
+Engineers, graduate students and researchers who are fluent in Python, multivariable
+calculus, linear algebra and probability, and who want to understand modern Bayesian
+computation at the level of the research literature (Blei, Hoffman, Betancourt, Kingma,
+Ranganath, Kucukelbir and their collaborators). No prior exposure to Bayesian inference
+is assumed. Every concept is built from first principles on the page where it is first
+needed, with the derivation written out line by line and a worked example with numbers.
+The workshop does not teach Stan, PyMC or NumPyro syntax; by the end of Day 4 you will
+have written the core of such a system yourself.
+
+## If Bayesian inference is new to you
+
+Read the pages in order and do not skip Module 2b. Day 0 ends with
+[Module 2b — Bayesian inference from first principles](day0/m02b-foundations.qmd), which
+derives Bayes' rule from the product rule, explains what a prior, likelihood, evidence
+and posterior are and what an engineer should make of each, shows why the posterior is
+hard to compute, and builds the whole workshop in miniature on a two-parameter model:
+an exact grid posterior, a Gaussian fit by minimising a divergence (variational
+inference in miniature) and a random-walk sampler (Markov chain Monte Carlo in
+miniature). Every later module refers back to it.
+
+The [glossary](reference/glossary.qmd) defines every term in the workshop once, in the
+order you meet it, with an engineer's reading of each. Module pages link to it the first
+time a term appears.
+
+Each module's Background section is structured the same way: the problem in plain
+terms, definitions, a derivation with a sentence per equation, a worked example with
+numbers, why it matters later, and common misconceptions. Read the Background before
+the Steps; the Steps assume it.
+
+## How the workshop works
+
+Each day is organised into two or three modules. Each module page has the same eight
+parts:
+
+| Part | What it is |
+|---|---|
+| Overview | Why the module exists, what you build, how long it takes, which earlier modules it needs |
+| Learning objectives | Three to five checkable outcomes |
+| Background | The concepts and derivations, built from first principles, with a worked example |
+| Steps | Numbered implementation steps with what each computes, the file to edit, a sanity check and the test to run |
+| Checkpoint | The test suite that must pass before the next module |
+| Challenge | Open-ended extensions without hand-holding |
+| Going deeper | Primary references, with a note on which to read first |
+| Troubleshooting | Numerical failure modes and conceptual confusions, and how to recognise them |
+
+You edit files in `workshop/`. Every function you must write is marked
+`raise NotImplementedError  # Module X, Step Y`. Signatures and docstrings are fixed; the
+tests in `tests/mXX/` call them. A step is done when `pytest tests/mXX -k stepY` passes.
+A module is done when `pytest tests/mXX` passes.
+
+Reference implementations live in `solutions/`. Instructors may withhold that directory.
+If you have it, `pytest tests/mXX --solutions` runs the same tests against it.
+
+Facilitators: see the [facilitator guide](instructor/facilitator-guide.qmd) and
+[day schedules](instructor/day-schedules.qmd).
+
+## The map
+
+The whole workshop answers one question: given a model $p(x, \theta)$ and data $x$, how
+do we compute expectations under the posterior $p(\theta \mid x)$ when the posterior
+has no closed form? Each day is one answer.
+
+| Day | Answer | What you build |
+|---|---|---|
+| 0 | Set up, learn the tools, see the problem exactly on a tiny model | JAX idioms; a grid posterior, a Gaussian fit by divergence, a random-walk sampler |
+| 1 | Exact answers exist for one class of models | Exponential families, KL divergences, conjugate updates |
+| 2 | Optimise over a family of tractable distributions | CAVI, gradient estimators, a black-box VI engine |
+| 3 | Sample from the posterior with a Markov chain | Hamiltonian Monte Carlo, adaptation, diagnostics |
+| 4 | Automate the bookkeeping so one model serves every algorithm | An effect-handler PPL, automatic unconstraining, a VAE |
+| 5 | Push one of three research directions | Flows, diffusion, or causal inference |
+
+## Schedule
+
+| Day | Theme | Modules | Time |
+|---|---|---|---|
+| 0 | Before you arrive | [Setup](day0/m00-setup.qmd), [JAX warm-up](day0/m01-jax-warmup.qmd), [Diagnostic](day0/m02-diagnostic.qmd), [Bayesian inference from first principles](day0/m02b-foundations.qmd) | 6 h |
+| 1 | Exponential families and variational geometry | [Exponential-family core](day1/m03-expfam-core.qmd), [KL and Bregman geometry](day1/m04-kl-bregman.qmd), [Conjugacy](day1/m05-conjugacy.qmd) | 8 h |
+| 2 | Variational inference | [ELBO and CAVI](day2/m06-cavi.qmd), [Gradient estimators](day2/m07-gradient-estimators.qmd), [Black-box VI engine](day2/m08-bbvi-engine.qmd) | 8 h |
+| 3 | Modern MCMC | [MH and Hamiltonian dynamics](day3/m09-hmc-core.qmd), [Adaptation](day3/m10-adaptation.qmd), [Diagnostics and comparison](day3/m11-diagnostics.qmd) | 8 h |
+| 4 | Probabilistic programming internals | [Traces and effect handlers](day4/m12-effect-handlers.qmd), [Inference through the PPL](day4/m13-ppl-inference.qmd), [Amortised VI, a VAE](day4/m14-vae.qmd) | 8 h |
+| 5 | Capstone | [Choose a track](day5/index.qmd): [Normalising flows](day5/m15a-flows.qmd), [Score-based diffusion](day5/m15b-diffusion.qmd), or [Structural causal models](day5/m15c-scm.qmd); [report template](day5/report-template.qmd) | 7 h |
+
+The reading in each module is about a third of its time. Days 1 to 4 are long; the
+facilitator guide says what to trim for a seven-hour day.
+
+## Datasets
+
+Every dataset is generated deterministically by `workshop/data.py`; nothing is downloaded.
+The problems are drawn from marketing analytics (A/B tests, channel attribution, regional
+uplift, ad-spend causal models), software products (SaaS churn, ad click-through) and
+molecular biology (qPCR replicates, single-cell embeddings, enzyme kinetics,
+transcriptional programs, backbone torsion angles). Parameters therefore always have a
+concrete reading, and you know the ground truth to check against.
+
+## Conventions
+
+- Natural parameters are flat 1-D arrays. Functions act on one observation; batches use
+  `jax.vmap`.
+- 64-bit floats are enabled everywhere (`jax_enable_x64`). Many of the numerical checks
+  would not pass in 32-bit.
+- Randomness is explicit: every stochastic function takes a `jax.random.key`.
+- Mathematical notation: $\theta$ or $z$ unknowns, $x$ data, $\eta$ natural parameters,
+  $\mu$ mean parameters, $A(\eta)$ log-partition, $t(x)$ sufficient statistic,
+  $\KL(p \,\|\, q)$ Kullback–Leibler divergence, $\ELBO$ the evidence lower bound.

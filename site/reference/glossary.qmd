@@ -1,0 +1,280 @@
+---
+title: "Glossary"
+---
+
+Terms used across the workshop, defined once, in the order you meet them. Each entry
+says what the object is, how to think about it as an engineer, and where it is first
+built. Module pages link here the first time they use a term.
+
+## The objects of inference
+
+### Model
+
+A joint probability distribution $p(x, \theta)$ over data $x$ and unknowns $\theta$,
+written as a generative story: first draw $\theta$ from the prior, then draw $x$ given
+$\theta$ from the likelihood. Everything in the workshop starts from a model written
+this way. Built from first principles in [Module 2b](../day0/m02b-foundations.qmd).
+
+### Prior
+
+$p(\theta)$: what is plausible for the unknowns before seeing the data. For an engineer
+the closest familiar object is a regulariser: a Gaussian prior on regression weights is
+L2 regularisation, and the maximum of the posterior is the regularised fit. The prior
+also sets the scale on which the data will be weighed.
+
+### Likelihood
+
+$p(x \mid \theta)$ viewed as a function of $\theta$ for the observed $x$. It scores how
+well each setting of the unknowns explains the data. It is not a density in $\theta$ and
+need not integrate to one.
+
+### Posterior
+
+$p(\theta \mid x)$: what is plausible for the unknowns after seeing the data. By the
+product rule, $p(\theta \mid x) = p(x \mid \theta)\,p(\theta) / p(x)$. The posterior is
+the object every method in this workshop approximates. Its normaliser is the evidence.
+
+### Evidence (marginal likelihood)
+
+$p(x) = \int p(x \mid \theta)\,p(\theta)\,\dd\theta$: the probability of the data under
+the whole model, averaging over the unknowns. It normalises the posterior and scores
+models against each other. It is an integral over every unknown at once, which is why it
+is usually intractable. The log evidence is the quantity the ELBO lower-bounds.
+
+### Posterior expectation
+
+$\E_{p(\theta \mid x)}[f(\theta)]$ for some function $f$: a posterior mean, a predictive
+probability, the probability that one variant beats another. Almost every question you
+ask a Bayesian model is an expectation of this form. Approximate inference is the art of
+estimating such expectations when the posterior has no closed form.
+
+### Posterior predictive
+
+$p(x_{\text{new}} \mid x) = \int p(x_{\text{new}} \mid \theta)\,p(\theta \mid x)\,\dd\theta$:
+the distribution of future data, averaging the likelihood over what you still do not
+know about $\theta$. Wider than any single-$\theta$ prediction.
+
+### Change of variables and the Jacobian {#jacobian}
+
+If $x = f(z)$ for an invertible map $f$, then $\log p_z(z) = \log p_x(f(z)) + \log|\det J_f(z)|$:
+the density in the new coordinates is the old density at the mapped point, times how
+much the map stretches a small volume there. Probability mass is conserved; density is
+not. The extra term is the log absolute Jacobian, and forgetting it gives a silently
+wrong posterior. It appears whenever a constrained parameter (a variance, a
+probability) is moved to the real line, and it is the entire mechanism of a normalising
+flow. Built from first principles in
+[Module 2b](../day0/m02b-foundations.qmd#sec-jacobian), which also provides a
+three-line checker (`workshop/jacobian_check.py`) for any transform.
+
+### Conjugacy
+
+A prior family is conjugate to a likelihood if the posterior lies in the same family.
+Then inference is exact and reduces to arithmetic on parameters. Rare but important:
+it supplies the exact answers that the approximate methods are tested against. Built in
+[Module 5](../day1/m05-conjugacy.qmd).
+
+## Exponential families
+
+### Exponential family
+
+A set of densities $p(x \mid \eta) = h(x)\exp(\eta^\top t(x) - A(\eta))$: the log density
+is linear in a fixed vector of statistics $t(x)$. Gaussian, Bernoulli, categorical,
+gamma, Dirichlet, Poisson and beta are all members. Built in
+[Module 3](../day1/m03-expfam-core.qmd).
+
+### Sufficient statistic
+
+$t(x)$: the function of the data through which the likelihood depends on the parameter.
+Everything else about the data is irrelevant to the parameter. For a Gaussian with
+unknown mean and variance, $t(x) = (x, x^2)$ and only the sums of $x$ and $x^2$ matter.
+
+### Natural parameter
+
+$\eta$: the coordinates in which the log density is linear in $t(x)$. Textbook parameters
+(mean and variance, probability, shape and rate) are nonlinear reparameterisations of
+$\eta$. Products of densities add natural parameters, which is why Bayesian updates
+become addition in these coordinates.
+
+### Log-partition function
+
+$A(\eta) = \log\int h(x)\exp(\eta^\top t(x))\,\dd x$: the log of the normalising constant.
+Its gradient is the mean of $t(x)$ and its Hessian is the covariance of $t(x)$, so one
+function generates moments, Fisher information and KL divergences.
+
+### Mean parameters
+
+$\mu = \E_\eta[t(x)] = \nabla A(\eta)$: the expected sufficient statistics. The second
+coordinate system for an exponential family, dual to $\eta$. Variational updates are
+often simplest in mean coordinates. Built in [Module 4](../day1/m04-kl-bregman.qmd).
+
+### Fisher information
+
+$F(\eta) = \mathrm{Cov}_\eta[t(x)] = \nabla^2 A(\eta)$: the expected curvature of the
+log-likelihood. Large Fisher information means the data pin down $\eta$ precisely. It is
+the metric behind natural gradients and the ideal mass matrix for HMC.
+
+### KL divergence
+
+$\KL(p\,\|\,q) = \E_p[\log p(x) - \log q(x)] \ge 0$: how much a code built for $q$ wastes
+when the data come from $p$, in nats. Asymmetric. Zero only when $p = q$. The objective
+that variational inference minimises, indirectly, through the ELBO.
+
+### Bregman divergence
+
+$D_A(\eta_q, \eta_p) = A(\eta_q) - A(\eta_p) - (\eta_q - \eta_p)^\top\nabla A(\eta_p)$: the
+gap between a convex function and its tangent plane. For an exponential family it
+equals $\KL(p_{\eta_p}\,\|\,p_{\eta_q})$.
+
+## Variational inference
+
+### Variational family
+
+A set of tractable distributions $q_\phi(\theta)$ indexed by variational parameters
+$\phi$, within which we search for the best approximation to the posterior. Mean-field
+Gaussians, normalising flows and the encoder of a VAE are all variational families.
+
+### ELBO (evidence lower bound)
+
+$\ELBO(\phi) = \E_{q_\phi}[\log p(x, \theta) - \log q_\phi(\theta)] = \log p(x) - \KL(q_\phi\,\|\,p(\theta\mid x))$.
+Maximising it over $\phi$ minimises the KL divergence to the posterior without ever
+computing the evidence. Derived in [Module 6](../day2/m06-cavi.qmd).
+
+### Mean-field
+
+A variational family that factorises over the unknowns, $q(\theta) = \prod_i q_i(\theta_i)$.
+Cheap, often accurate for means, systematically too narrow for variances because it
+cannot represent posterior correlations.
+
+### CAVI (coordinate ascent variational inference)
+
+Optimise the ELBO one factor $q_i$ at a time, each update in closed form for conjugate
+models. The ELBO never decreases. Built in [Module 6](../day2/m06-cavi.qmd).
+
+### Score-function (REINFORCE) gradient
+
+An estimator of $\nabla_\phi\E_{q_\phi}[f(\theta)]$ that uses $f$ only through its values:
+$\E_{q_\phi}[f(\theta)\nabla_\phi\log q_\phi(\theta)]$. Works for discrete $\theta$ and
+black-box $f$; high variance. Built in [Module 7](../day2/m07-gradient-estimators.qmd).
+
+### Reparameterisation (pathwise) gradient
+
+Write $\theta = g_\phi(\varepsilon)$ with $\varepsilon$ parameter-free, then
+$\nabla_\phi\E[f(\theta)] = \E[\nabla_\phi f(g_\phi(\varepsilon))]$. Uses $\nabla f$, so
+much lower variance; needs a differentiable $f$ and a reparameterisable $q$.
+
+### Stochastic variational inference
+
+Optimise the ELBO with noisy gradients from Monte Carlo samples of $q$ and minibatches
+of data. The engine of modern VI. Built in [Module 8](../day2/m08-bbvi-engine.qmd).
+
+### Bijector
+
+A smooth invertible map with a computable log-determinant of its Jacobian. Used to move
+constrained parameters (a variance, a probability) to the whole real line so Gaussians
+and gradient methods apply, and as the building block of normalising flows.
+
+### Amortised inference
+
+Instead of fitting variational parameters per data point, learn a function (an encoder)
+from data to variational parameters. The VAE encoder is amortised inference. Built in
+[Module 14](../day4/m14-vae.qmd).
+
+## Markov chain Monte Carlo
+
+### Markov chain Monte Carlo (MCMC)
+
+Construct a random walk whose long-run distribution is the posterior, then average the
+visited points. Exact in the limit, with no family restriction; the price is correlated
+samples and the need for diagnostics.
+
+### Detailed balance
+
+$p(\theta)\,K(\theta \to \theta') = p(\theta')\,K(\theta' \to \theta)$ for a transition
+kernel $K$: the condition that makes a chain leave the posterior invariant. The
+Metropolis acceptance rule is the standard way to enforce it.
+
+### Hamiltonian Monte Carlo (HMC)
+
+Introduce an auxiliary momentum, simulate frictionless motion on the negative log
+posterior with a symplectic integrator, and accept or reject the endpoint. Moves far
+with high acceptance. Built in [Module 9](../day3/m09-hmc-core.qmd).
+
+### Leapfrog integrator
+
+The second-order, reversible, volume-preserving integrator used by HMC. Its energy error
+is bounded over long trajectories, which keeps acceptance high.
+
+### Step size and mass matrix
+
+The two tunables of HMC. The step size trades accuracy for speed; the mass matrix
+rescales coordinates so the posterior looks round. Adapted automatically in
+[Module 10](../day3/m10-adaptation.qmd).
+
+### Divergence
+
+A trajectory whose energy error blows up, indicating a region the integrator cannot
+follow, usually a sharp funnel. A diagnostic, not a numerical accident.
+
+### $\hat R$ and effective sample size
+
+$\hat R$ compares between-chain and within-chain variance; values well above 1 mean the
+chains disagree. Effective sample size converts correlated draws into the number of
+independent draws they are worth. Built in [Module 11](../day3/m11-diagnostics.qmd).
+
+## Probabilistic programming
+
+### Trace
+
+The record of every random choice a model made during one execution: name,
+distribution, value, whether it was observed. The data structure on which inference
+algorithms operate. Built in [Module 12](../day4/m12-effect-handlers.qmd).
+
+### Effect handler
+
+A context manager that intercepts `sample` calls and changes what they do: record, replay,
+condition on data, fix values. Composing handlers is how one model definition serves
+many inference algorithms.
+
+### Guide
+
+The probabilistic-programming word for a variational family: a program with the same
+sample sites as the model but with learnable parameters.
+
+## Capstone
+
+### Normalising flow
+
+A sequence of bijectors applied to a simple base distribution; the density of the
+output is computed exactly by the change-of-variables formula. An expressive
+variational family. Built in [Track A](../day5/m15a-flows.qmd).
+
+### Score function (of a density)
+
+$\nabla_x \log p(x)$, the gradient of the log density with respect to the data, not the
+parameters. Diffusion models learn it at every noise level. Built in
+[Track B](../day5/m15b-diffusion.qmd).
+
+### Structural causal model
+
+Each variable is a deterministic function of its parents and an independent noise term.
+Interventions replace a function; counterfactuals re-run the model with the noise
+inferred from an observed outcome. Built in [Track C](../day5/m15c-scm.qmd).
+
+## Notation that changes meaning between days {#notation}
+
+The workshop follows each field's standard notation rather than inventing a uniform
+one, so a few letters are reused. Each page says which reading applies.
+
+| Symbol | Days 1, 2, 4 and Track A | Day 3 | Track B |
+|---|---|---|---|
+| $q$ | the variational distribution $q_\phi(\theta)$ | the position coordinate in HMC, $(q, p)$ | the forward (noising) process $q(x_t \mid x_0)$ |
+| $p$ | the model or target density | the momentum in HMC | the model density $p_t$ |
+| $\theta$ | the unknowns being inferred | also the unknowns; written $q$ inside the sampler | the score-network weights |
+| score | $\nabla_\phi \log q_\phi(z)$, gradient in the *parameters* (Module 7) | not used | $\nabla_x \log p_t(x)$, gradient in the *data point* |
+| $x$ | observed data | observed data | the data point being noised, $x_t$ |
+| $\eta$ | natural parameters of an exponential family | the standardised deviations $\eta_j$ of the non-centred model | not used |
+
+The clash in $q$ is the one that bites. On Day 3, $q$ is where the particle is and $p$
+is how fast it is going, because that is how every HMC paper writes Hamilton's
+equations; the posterior is then $\pi(q)$. When Module 11 compares HMC against VI,
+the variational distribution is written $q_\phi$ with the subscript to tell them apart.

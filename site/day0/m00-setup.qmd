@@ -1,0 +1,202 @@
+---
+title: "Module 0 — Setup"
+---
+
+## Overview
+
+**Why this module exists.** Everything in this workshop is checked by a test. You will
+run tests hundreds of times over five days, so the first half hour makes sure the
+environment, the test runner and the site all work, and explains what the harness is
+doing so that its messages make sense later.
+
+**What you'll build:** a working environment in which the full test suite runs and the
+site serves locally.
+
+**Estimated time:** 40 minutes (about 10 reading, 30 setting up).
+
+**Prerequisites:** none. Python 3.11 to 3.13 and the `uv` package manager, or plain
+`pip`. The Quarto CLI if you want to serve this site locally rather than read a hosted
+copy. A laptop CPU is sufficient for the whole workshop; a GPU is optional and never
+required.
+
+## Learning objectives
+
+By the end of this module you can:
+
+1. Create the pinned environment and run `pytest` against both `workshop/` and
+   `solutions/`.
+2. Explain how the `--solutions` flag switches implementations without changing a test.
+3. Serve the workshop site locally and navigate it.
+
+## Background
+
+### How to read this workshop if Bayesian inference is new to you
+
+The workshop assumes calculus, linear algebra, probability and fluent Python. It does
+not assume you have ever computed a posterior. Three things make the first days easier.
+
+- Do [Module 2b](m02b-foundations.qmd) before Day 1. It builds, on a small model, every
+  idea the later days scale up: what a posterior is, why it is hard to compute, and the
+  three routes around the difficulty. Every later page refers back to it.
+- Keep the [glossary](../reference/glossary.qmd) open. Each term is defined once, in the
+  order you meet it, with the module where it is built.
+- Read each module's Background in full before touching code. The Steps assume it. The
+  Background sections are written as derivations with a sentence per line; if a line
+  does not follow for you, that is the place to stop and work it out, not to skip.
+
+### What the test harness does
+
+The repository has four code directories and one documentation directory.
+
+```
+workshop/   starter package: you edit this
+solutions/  reference implementations with identical signatures
+tests/      pytest suites, one directory per module, one file per step
+notebooks/  optional exploration notebooks, one per module
+site/       this site (Quarto website source)
+```
+
+You write code in `workshop/`. Each function you must write is a stub that raises
+`NotImplementedError` with the module and step number in a comment. The tests in
+`tests/mXX/` call those functions with fixed inputs and compare the outputs against
+independent references: SciPy, numerical integration, Monte Carlo estimates with known
+standard errors, or mathematical identities such as "the inverse of the forward map is
+the identity". A step is done when its tests pass. Before you have written anything,
+every test fails with `NotImplementedError`; that is by design, and `make check-starter`
+verifies that no test can pass by accident.
+
+The test runner imports `workshop.mXX_name`. With `--solutions`, `tests/conftest.py`
+registers the `solutions` package under the name `workshop` in `sys.modules` before
+collection, so the identical test file exercises the reference code. Both packages use
+only relative imports internally, so the cross-module dependencies of later days (the
+VI engine calling the exponential-family library, the PPL calling both) resolve inside
+whichever package is active.
+
+All tests run with 64-bit floats. JAX defaults to 32-bit; `conftest.py` flips the flag.
+When you experiment in a notebook or a REPL, do the same:
+
+```python
+import jax
+jax.config.update("jax_enable_x64", True)
+```
+
+## Steps
+
+### Step 1 — Install
+
+Clone or unpack the repository, then from its root:
+
+```bash
+make setup
+source .venv/bin/activate
+```
+
+`make setup` creates `.venv` with `uv` and installs the pinned versions from
+`pyproject.toml` (JAX 0.11.2 CPU, NumPy 2.5.3, SciPy 1.18.1, Matplotlib 3.11.2, pytest
+9.1.1). It also warns if the Quarto CLI is missing; install it from
+<https://quarto.org/docs/get-started/> (`brew install --cask quarto` on macOS). Without `uv`:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate && pip install -e .
+```
+
+Check:
+
+```bash
+python -c "import jax; print(jax.__version__, jax.devices())"
+```
+
+You should see `0.11.2 [CpuDevice(id=0)]`.
+
+### Step 2 — Run the environment tests
+
+```bash
+pytest tests/m00
+```
+
+You should see four passing tests. These check 64-bit mode, package versions, a CPU
+device and that `workshop` and `solutions` import.
+
+### Step 3 — Run a module against the starter and the solutions
+
+```bash
+pytest tests/m01
+pytest tests/m01 --solutions
+```
+
+The first command fails every test with `NotImplementedError`; the second passes. The
+header line of the pytest output names the active implementation. Read one failure
+message in full now, so that you recognise the shape later: the traceback ends at the
+stub in `workshop/m01_jax.py`, and the comment on that line names the module and step.
+
+### Step 4 — Serve the site
+
+```bash
+make serve
+```
+
+Open <http://localhost:8000>. The left sidebar groups modules by day. Confirm that
+display mathematics renders on this page:
+
+$$
+p(x \mid \eta) = h(x)\exp\big(\eta^\top t(x) - A(\eta)\big).
+$$
+
+If you see raw LaTeX, hard-refresh the browser once; MathJax loads from a CDN on the
+first visit. `make serve` runs `quarto preview`, which re-renders a page when its
+source changes.
+
+### Step 5 — Optional: notebooks
+
+```bash
+uv pip install -e ".[notebooks]" --python .venv/bin/python
+jupytext --to ipynb notebooks/*.py
+jupyter lab
+```
+
+Notebooks are stored as `.py` files in the `jupytext` percent format so they diff
+cleanly. Set `WORKSHOP_IMPL=solutions` in the environment to run a notebook against the
+reference code.
+
+## Checkpoint
+
+::: {.callout-tip title="Checkpoint"}
+`pytest tests/m00` passes, `pytest tests/m01 --solutions` passes, and the site serves
+with rendered mathematics.
+:::
+
+## Challenge
+
+::: {.callout-note title="Challenge"}
+Read `tests/conftest.py` and `scripts/check_starter_fails.py`. Then run
+`make check-starter` and explain, in two sentences, what property of the test suite
+it enforces and why that property matters for a workshop.
+:::
+
+## Going deeper
+
+- JAX documentation, "The Sharp Bits": the list of behaviours that differ from NumPy
+  (pure functions, in-place updates, random numbers, control flow, 64-bit precision).
+- Murphy, *Probabilistic Machine Learning: Advanced Topics* (MIT Press, 2023), Chapter 1,
+  for the map of the territory this workshop covers.
+
+## Troubleshooting
+
+::: {.callout-warning title="Troubleshooting"}
+**`uv: command not found`.** Install with `curl -LsSf https://astral.sh/uv/install.sh | sh`
+or use the `pip` path in Step 1.
+
+**`No matching distribution found for jaxlib==0.11.2`.** Your Python is outside
+3.11–3.13, or you are on an unsupported platform. Check `python3 --version`.
+
+**Dtype is `float32` in a notebook.** You enabled 64-bit after creating arrays. The
+flag must be set before the first JAX operation in the process.
+
+**Mathematics does not render.** The MathJax script is loaded from a CDN; check the
+browser console for a blocked request. The site works offline except for this.
+
+**`quarto: command not found`.** The Quarto CLI is a separate install, not a Python
+package. The workshop code and tests do not need it; only `make serve` and
+`make build-site` do.
+:::
+

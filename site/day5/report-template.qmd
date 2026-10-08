@@ -1,0 +1,68 @@
+---
+title: "Capstone report template"
+---
+
+Two pages maximum, plain Markdown, placed at `reports/<your-name>-<track>.md`. The
+report is read by a facilitator and by one other participant. Write for them: assume
+they did a different track.
+
+## Required sections
+
+### 1. Problem and model
+
+State the model in equations (the generative process or SDE, the variational family or
+the causal graph). Name the dataset and the ground truth available in it. Four to eight
+lines.
+
+### 2. What you built
+
+List the functions implemented, in dependency order, with one sentence each. State which
+checkpoint tests pass and which, if any, do not, with the failing assertion.
+
+### 3. Experiment
+
+One experiment beyond the checkpoint tests, chosen from the track-specific prompts below
+or of your own design. Include: what you varied, what you measured, a table or a single
+figure, and the result in one sentence. Fixed PRNG keys; report them.
+
+### 4. What went wrong
+
+The most expensive bug or misconception of the day, how you detected it, and what
+diagnostic would have caught it sooner. This section is mandatory and is the part most
+readers learn from.
+
+### 5. Open question
+
+One question your results raise that you could not answer in the time available, and a
+sketch of the experiment that would answer it.
+
+## Track-specific experiment prompts
+
+**Track A — Flows.** (i) Depth versus fit: ELBO and KL to the HMC reference as a function
+of the number of coupling layers (2, 4, 8). (ii) Funnel geometry: compare the fitted
+flow's marginal over $\log\tau$ with HMC's and with mean-field VI's; quantify the tail
+mass below $\log\tau = -2$. (iii) Importance-weighted ELBO with the flow as proposal: how
+many samples until the effective sample size exceeds 50%?
+
+**Track B — Diffusion.** (i) Sampler step count: Wasserstein or energy distance between
+generated and held-out torsion angles as a function of the number of Euler–Maruyama
+steps (50, 200, 1000). (ii) Likelihood: test log-likelihood from the probability-flow ODE
+versus a Gaussian mixture fit with the same number of parameters. (iii) Noise schedule:
+linear versus cosine $\beta(t)$, same budget.
+
+**Track C — Causal.** (i) Identifiability: estimate the SCM coefficients from
+observational data alone and show which counterfactual queries are sensitive to the
+seasonality confounder being observed or not. (ii) Posterior over exogenous noise: for a
+single week, show the abducted $U$ posterior and the counterfactual conversion
+distribution under halved spend; compare with the closed-form answer. (iii) Misspecified
+mechanisms: replace the linear traffic mechanism with a saturating one in the data, keep
+the linear model, and quantify the counterfactual bias.
+
+## Grading rubric (for facilitators)
+
+| Criterion | Weight |
+|---|---|
+| Checkpoint tests pass | 30% |
+| Experiment is well-posed and the result is stated correctly | 30% |
+| "What went wrong" is specific and the proposed diagnostic is sound | 25% |
+| Clarity: equations, tables and prose are precise and brief | 15% |
