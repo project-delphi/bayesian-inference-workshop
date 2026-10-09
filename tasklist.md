@@ -131,5 +131,5 @@ tests and notebook exist, `pytest tests/mXX --solutions` passes, and
 - [x] `.github/workflows/publish.yml` (test, render, deploy); README, AGENTS.md updated
 - [x] Second review fixes: list-marker check covers `(1)`, `#.`, upper-case Roman and years at the margin, and ignores capital initials; module path checked for every module page; theme no longer persists the OS value (removed after Quarto applies it; a toggle click restores it first); dark navbar color is a `$bi-navbar` token; workflow comment on concurrency corrected, render timeout, uv cache keyed on pyproject.toml
 - [x] CI found `tests/m11/test_step4_comparison.py` flaky across CPUs (0.161 vs a 0.15 bound; local 0.145, Monte Carlo error ~0.025 sd): bound set to 0.25 with the reasoning in the test
-- [ ] First deploy green and the live site checked in a browser
+- [x] First deploy green (run on 9dd6e2e: test, render, deploy) and the live site checked in a browser: pages, fonts, figures, widgets and MathJax load; m02 quiz options intact; `widgets/_test.html` 404 as intended. Repo homepage set to the site URL
 
