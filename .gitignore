@@ -1,6 +1,7 @@
 .venv/
 site/_site/
 site/.quarto/
+site/.gitignore
 __pycache__/
 *.pyc
 .pytest_cache/
