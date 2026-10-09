@@ -129,5 +129,7 @@ tests and notebook exist, `pytest tests/mXX --solutions` passes, and
 - [x] Fixed six references and six m02 quiz questions broken by a wrapped line starting with a list marker ("  2017.", "  (b)"), which Pandoc parses as a nested list; `check_site.py` now fails on such lines in the source
 - [x] PR #5 review fixes: `overflow-x: clip` scoped to the landing page; `$bi-primary` token (light in dark mode, so search and buttons stay readable); no literal colors in rules; theme follows the OS until the reader toggles; `widgets/_test.html` no longer deployed; one navbar color source; path rail joins across days; `check_site.py` checks the hero counts against the files
 - [x] `.github/workflows/publish.yml` (test, render, deploy); README, AGENTS.md updated
+- [x] Second review fixes: list-marker check covers `(1)`, `#.`, upper-case Roman and years at the margin, and ignores capital initials; module path checked for every module page; theme no longer persists the OS value (removed after Quarto applies it; a toggle click restores it first); dark navbar color is a `$bi-navbar` token; workflow comment on concurrency corrected, render timeout, uv cache keyed on pyproject.toml
+- [x] CI found `tests/m11/test_step4_comparison.py` flaky across CPUs (0.161 vs a 0.15 bound; local 0.145, Monte Carlo error ~0.025 sd): bound set to 0.25 with the reasoning in the test
 - [ ] First deploy green and the live site checked in a browser
 

@@ -18,8 +18,9 @@ permissions:
 
 concurrency:
   group: publish-${{ github.ref }}
-  # A new push supersedes a stale pull-request run; a run on main is never cancelled,
-  # because it may be part-way through a deploy.
+  # A new push cancels a running pull-request run. A running run on main is never
+  # cancelled, because it may be part-way through a deploy; a run still queued behind it
+  # is replaced by the newest push, which then tests and deploys the newer commit.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -33,10 +34,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # An exact tag: setup-uv publishes no floating major tag.
+      # An exact tag: setup-uv publishes no floating major tag. There is no uv.lock; the
+      # exact pins live in pyproject.toml, so the wheel cache is keyed on it.
       - uses: astral-sh/setup-uv@v10.2.0
         with:
-          enable-cache: false
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
 
       - name: Install pinned dependencies
         run: make setup
@@ -54,6 +57,7 @@ jobs:
   # rendering needs Quarto and the standard library only.
   render:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 

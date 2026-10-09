@@ -14,7 +14,8 @@ $bi-text: #1f2933 !default;
 $bi-heading: #14263a !default;
 $bi-muted: #55616e !default;
 $bi-link: #1d5f8a !default;
-$bi-navy: #16324f !default; // navbar and hero band
+$bi-navy: #16324f !default; // hero band, card tops, path nodes
+$bi-navbar: #16324f !default;
 $bi-primary: #16324f !default; // Bootstrap's $primary: buttons, checks, search highlight
 $bi-on-navy: #ffffff !default;
 $bi-on-navy-muted: #c5d3e2 !default;
@@ -34,7 +35,7 @@ $body-color: $bi-text !default;
 $link-color: $bi-link !default;
 $border-color: $bi-border !default;
 $headings-color: $bi-heading !default;
-$navbar-bg: $bi-navy !default;
+$navbar-bg: $bi-navbar !default;
 $navbar-fg: $bi-on-navy !default;
 $code-color: $bi-code !default;
 $code-bg: $bi-code-bg !default;

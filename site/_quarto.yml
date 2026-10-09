@@ -155,21 +155,34 @@ format:
     highlight-style: a11y
     html-math-method: mathjax
     link-external-newwindow: true
-    # MathJax macros used across the pages, then the light/dark choice. Quarto 1.6 reads
-    # only the stored "quarto-color-scheme"; this script keeps it in step with the
-    # operating system until the reader uses the navbar toggle. bi-color-scheme-auto
-    # records the value set here: a stored value that differs from it was chosen by the
-    # reader (on this site or another Quarto site on the same origin) and is kept.
+    # MathJax macros used across the pages, then light/dark. Quarto 1.6 applies the stored
+    # "quarto-color-scheme" on DOMContentLoaded, and its navbar toggle stores the reader's
+    # choice there. With nothing stored, the operating system's setting is stored for
+    # Quarto to read and removed again once applied, so nothing persists that the reader
+    # did not choose (the key is shared by every Quarto site on this origin). A click on
+    # the toggle first restores the value on screen, so Quarto flips from what the reader
+    # sees and stores that choice.
     include-in-header:
       text: |
         <script>
         window.MathJax = { tex: { macros: { E: "\\mathbb{E}", R: "\\mathbb{R}", KL: "\\mathrm{KL}", dd: "\\,\\mathrm{d}", tr: "\\operatorname{tr}", diag: "\\operatorname{diag}", ELBO: "\\mathcal{L}" } } };
-        try {
-          var os = matchMedia("(prefers-color-scheme: dark)").matches ? "alternate" : "default";
-          var stored = localStorage.getItem("quarto-color-scheme");
-          if (stored === null || stored === localStorage.getItem("bi-color-scheme-auto")) {
-            localStorage.setItem("quarto-color-scheme", os);
-            localStorage.setItem("bi-color-scheme-auto", os);
-          }
-        } catch (e) {}
+        (function () {
+          var key = "quarto-color-scheme";
+          try {
+            if (localStorage.getItem(key) !== null) return;
+            var shown = matchMedia("(prefers-color-scheme: dark)").matches ? "alternate" : "default";
+            localStorage.setItem(key, shown);
+            document.addEventListener("DOMContentLoaded", function () {
+              setTimeout(function () {
+                if (localStorage.getItem(key) === shown) localStorage.removeItem(key);
+              });
+            });
+            document.addEventListener("click", function (e) {
+              if (e.target.closest && e.target.closest(".quarto-color-scheme-toggle") &&
+                  localStorage.getItem(key) === null) {
+                localStorage.setItem(key, shown);
+              }
+            }, true);
+          } catch (e) {}
+        })();
         </script>

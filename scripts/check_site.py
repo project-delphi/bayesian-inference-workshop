@@ -8,7 +8,7 @@
   `### Step N — title` opens with "**What this computes.**" (checked in the source)
 - no leftover MkDocs syntax (`!!!`, `--8<--`) in the source pages
 - the landing page's hero counts (modules, capstone tracks, figures and animations,
-  interactive widgets) match the files in site/
+  interactive widgets) match the files in site/, and its module path links every module
 - no wrapped line that starts with an ordered-list marker ("  2017. ...", "  (b) ..."):
   directly under a non-blank line inside a list item it becomes a nested list, and the
   item loses its tail (checked in the source, pages and included instructor files)
@@ -32,9 +32,14 @@ STEP_HEADING = re.compile(r"^### Step \d+ — \S")
 ANY_STEP_HEADING = re.compile(r"^#+\s*Step\b")  # "## Steps" is the section, not a step
 OVERVIEW_HEADING = re.compile(r"^## Overview\b")
 FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
-# Pandoc's list markers: 1. 1) (a) a. a) (iv) iv. -- after indentation, then a space.
 FACT = re.compile(r"\[\*\*(\d+)\*\* ([^\]]+)\]\{\.fact\}")  # [**19** modules]{.fact}
-LIST_MARKER = re.compile(r"^\s+(\d+[.)]|\(?[A-Za-z][.)]|\(?[ivxlcdm]+[.)])\s")
+# Pandoc's ordered-list markers after indentation: 1. 1) (1) #. a. a) (a) iv. (iv) IV. --
+# then a space. A capital letter with a period needs two spaces ("  A. Gelman" is prose).
+LIST_MARKER = re.compile(
+    r"^\s+(\(?(\d+|#|[a-z]|[ivxlcdm]+|[IVXLCDM]{2,})[.)]|\(?[A-Z]\)|[A-Z]\.\s)\s"
+)
+# At the margin a list may follow a list item directly, so only a year is flagged there.
+YEAR_AT_MARGIN = re.compile(r"^(1[5-9]|20)\d\d\.\s")
 
 
 def _outside_fences(lines: list[str]):
@@ -75,9 +80,11 @@ def template_errors(src: pathlib.Path) -> list[str]:
     return errors
 
 
-def landing_count_errors() -> list[str]:
-    """The hero's numbers on index.qmd against the files they count."""
-    facts = {label: int(n) for n, label in FACT.findall((SITE_SRC / "index.qmd").read_text())}
+def landing_errors() -> list[str]:
+    """The hero's numbers on index.qmd against the files they count, and every module
+    page on the module path."""
+    index = (SITE_SRC / "index.qmd").read_text()
+    facts = {label: int(n) for n, label in FACT.findall(index)}
     actual = {
         "modules": len(list(SITE_SRC.glob("day*/m*.qmd"))),
         "capstone tracks": len(list(SITE_SRC.glob("day5/m15*.qmd"))),
@@ -90,6 +97,9 @@ def landing_count_errors() -> list[str]:
             errors.append(f"site/index.qmd: the hero has no [**N** {label}]{{.fact}}")
         elif facts[label] != n:
             errors.append(f"site/index.qmd: the hero says {facts[label]} {label}; site/ has {n}")
+    for page in sorted(SITE_SRC.glob("day*/m*.qmd")):
+        if f"]({page.relative_to(SITE_SRC).as_posix()})" not in index:
+            errors.append(f"site/index.qmd: the module path does not link {page.relative_to(SITE_SRC)}")
     return errors
 
 
@@ -99,8 +109,9 @@ def wrapped_marker_errors(src: pathlib.Path) -> list[str]:
     lines = src.read_text().splitlines()
     return [
         f"{rel}:{i + 1}: wrapped line starts with a list marker; join it to the line above"
+        " (or, for a nested list, put a blank line before it)"
         for i, line in _outside_fences(lines)
-        if i and lines[i - 1].strip() and LIST_MARKER.match(line)
+        if i and lines[i - 1].strip() and (LIST_MARKER.match(line) or YEAR_AT_MARGIN.match(line))
     ]
 
 
@@ -169,7 +180,7 @@ def main() -> int:
         errors += template_errors(src)
     for src in sorted([*SITE_SRC.rglob("*.qmd"), *(ROOT / "instructor").glob("*.md")]):
         errors += wrapped_marker_errors(src)
-    errors += landing_count_errors()
+    errors += landing_errors()
     for src in SITE_SRC.rglob("*.qmd"):
         text = src.read_text()
         if re.search(r"^\s*!!!\s", text, re.M) or "--8<--" in text:
