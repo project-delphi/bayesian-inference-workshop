@@ -120,3 +120,13 @@ tests and notebook exist, `pytest tests/mXX --solutions` passes, and
 - Python 3.13.2, `uv` at /opt/homebrew/bin/uv
 - Pins chosen 2026-10-07: jax 0.11.2, numpy 2.5.3, scipy 1.18.1, matplotlib 3.11.2,
   pytest 9.1.1, mkdocs-material 9.7.7 (verify at Phase 1; adjust if wheels missing)
+
+## Phase 11 — Publish (user request 2026-10-08: "do the quarto site and host it on github pages; take inspiration from my other workshops")
+- [x] Repo made public (user decision; Pages is unavailable on private repos on this plan); Pages source set to GitHub Actions
+- [x] LICENSE: text CC BY 4.0, code MIT (as nlp-llms and tensors-workshop); footer says so
+- [x] Theme after nlp-llms: `site/custom.scss` tokens + rules, `site/custom-dark.scss` palette, light/dark toggle following the OS on first visit, vendored Inter + Source Serif 4, navy navbar with GitHub icon, footer, Previous/Next cards
+- [x] Landing page: hero, six day cards, module path, outcomes, step rhythm; existing reviewed prose kept
+- [x] Fixed six references broken by a wrapped line starting with a year (parsed as an ordered list); `check_site.py` now fails on `<ol start="NNN">`
+- [x] `.github/workflows/publish.yml` (test, render, deploy); README, AGENTS.md updated
+- [ ] First deploy green and the live site checked in a browser
+

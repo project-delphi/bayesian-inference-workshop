@@ -7,6 +7,8 @@
 - every module page's Overview opens with "**Why this module exists.**", and every
   `### Step N — title` opens with "**What this computes.**" (checked in the source)
 - no leftover MkDocs syntax (`!!!`, `--8<--`) in the source pages
+- no ordered list numbered from 100 or more: a wrapped line that starts with a year
+  ("  2017. ...") inside a list item is parsed as a list, so the reference loses its tail
 
 Exit status 1 on any failure. Run after `quarto render site`.
 """
@@ -27,6 +29,7 @@ STEP_HEADING = re.compile(r"^### Step \d+ — \S")
 ANY_STEP_HEADING = re.compile(r"^#+\s*Step\b")  # "## Steps" is the section, not a step
 OVERVIEW_HEADING = re.compile(r"^## Overview\b")
 FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+YEAR_LIST = re.compile(r'<ol start="\d{3,}"')
 
 
 def _next_paragraph(lines: list[str], i: int) -> str:
@@ -96,9 +99,10 @@ def main() -> int:
     if not OUT.exists():
         print("site/_site missing; run `quarto render site` first")
         return 1
-    pages = {p: Collector() for p in OUT.rglob("*.html")}
+    texts = {p: p.read_text(errors="ignore") for p in OUT.rglob("*.html")}
+    pages = {p: Collector() for p in texts}
     for p, c in pages.items():
-        c.feed(p.read_text(errors="ignore"))
+        c.feed(texts[p])
     for p, c in pages.items():
         rel = p.relative_to(OUT)
         for href in c.links:
@@ -118,6 +122,8 @@ def main() -> int:
                 ids = pages[tpath].ids if tpath in pages else set()
                 if frag not in ids:
                     errors.append(f"{rel}: missing anchor #{frag} in {tpath.relative_to(OUT)}")
+        if YEAR_LIST.search(texts[p]):
+            errors.append(f"{rel}: a source line starts with a year and became an ordered list")
         if re.match(r"day\d/m\d", str(rel)) and rel.name != "index.html":
             missing = [r for r in REQUIRED if not any(h.startswith(r) for h in c.h2)]
             if missing:

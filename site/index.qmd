@@ -1,14 +1,349 @@
 ---
 title: "Bayesian Inference from Scratch"
+toc: false
+page-layout: full
+# No module sidebar here: the day cards and the path below are the map, and the hero
+# band bleeds to both viewport edges. custom.scss hides the title block: the hero
+# carries the title.
+sidebar: false
+body-classes: landing
 ---
 
-A five-day, hands-on workshop in modern approximate inference for engineers who have
-not done Bayesian inference before. You build every piece of machinery yourself in JAX:
-an exponential-family library with closed-form divergences, black-box variational
-inference, Hamiltonian Monte Carlo with adaptation and diagnostics, an effect-handler
-probabilistic programming language, and one of three research-level capstones. Nothing
-is hidden behind a probabilistic programming framework. The only dependencies are JAX,
-NumPy, SciPy and Matplotlib.
+::: {.hero}
+[A five-day workshop · Built in JAX]{.eyebrow}
+
+# Bayesian Inference from Scratch {.unnumbered .unlisted}
+
+[Modern approximate inference, from first principles]{.hero-subtitle}
+
+::: {.hero-lead}
+Given a model and data, how do you compute expectations under a posterior that has no
+closed form? Over five days you answer that question four ways and build each answer
+yourself: closed-form exponential families, variational inference, Hamiltonian Monte
+Carlo, and an effect-handler probabilistic programming language that runs both. No
+probabilistic programming framework is used; the dependencies are JAX, NumPy, SciPy and
+Matplotlib.
+:::
+
+::: {.hero-actions}
+[Start here](day0/m00-setup.qmd){.btn-primary-action} [Bayesian inference from first principles](day0/m02b-foundations.qmd) [Glossary](reference/glossary.qmd) [Source on GitHub](https://github.com/project-delphi/bayesian-inference-workshop)
+:::
+
+::: {.facts}
+[**Day 0** + **5** days]{.fact}
+[**19** modules]{.fact}
+[**3** capstone tracks]{.fact}
+[**48** figures and animations]{.fact}
+[**5** interactive widgets]{.fact}
+:::
+:::
+
+## The six days
+
+::: {.section-lede}
+The whole workshop answers one question: given a model $p(x, \theta)$ and data $x$, how
+do we compute expectations under the posterior $p(\theta \mid x)$ when the posterior has
+no closed form? Each day is one answer.
+:::
+
+::: {.day-grid}
+::: {.day-card}
+[Day 0]{.eyebrow}
+
+[Before you arrive](day0/m00-setup.qmd){.day-card-title}
+
+[What is a posterior, and why is it hard to compute?]{.day-card-question}
+
+[Modules 0, 1, 2, 2b · 6 h of pre-work]{.day-card-span}
+:::
+::: {.day-card}
+[Day 1]{.eyebrow}
+
+[Exponential families](day1/m03-expfam-core.qmd){.day-card-title}
+
+[For which models does the posterior have a closed form?]{.day-card-question}
+
+[Modules 3–5 · 8 h]{.day-card-span}
+:::
+::: {.day-card}
+[Day 2]{.eyebrow}
+
+[Variational inference](day2/m06-cavi.qmd){.day-card-title}
+
+[Can we optimise our way to an approximate posterior?]{.day-card-question}
+
+[Modules 6–8 · 8 h]{.day-card-span}
+:::
+::: {.day-card}
+[Day 3]{.eyebrow}
+
+[Modern MCMC](day3/m09-hmc-core.qmd){.day-card-title}
+
+[Can we sample from a posterior we can only evaluate up to a constant?]{.day-card-question}
+
+[Modules 9–11 · 8 h]{.day-card-span}
+:::
+::: {.day-card}
+[Day 4]{.eyebrow}
+
+[Probabilistic programming internals](day4/m12-effect-handlers.qmd){.day-card-title}
+
+[How can one model serve every inference algorithm?]{.day-card-question}
+
+[Modules 12–14 · 8 h]{.day-card-span}
+:::
+::: {.day-card}
+[Day 5]{.eyebrow}
+
+[Capstone](day5/index.qmd){.day-card-title}
+
+[Which of three research directions will you push?]{.day-card-question}
+
+[One of tracks 15a, 15b, 15c · 7 h]{.day-card-span}
+:::
+:::
+
+The reading in each module is about a third of its time. Days 1 to 4 are long; the
+[facilitator guide](instructor/facilitator-guide.qmd) says what to trim for a seven-hour
+day.
+
+## The path {#path}
+
+::: {.section-lede}
+Each module builds on the ones before it, and later modules import your earlier code:
+the variational inference engine of Module 8 and the sampler of Modules 9 to 11 are what
+your probabilistic programming language runs in Module 13, and the HMC reference from
+Module 11 is what the flows capstone is measured against.
+:::
+
+::: {.path}
+::: {.path-day}
+[Day 0 · Before you arrive](day0/m00-setup.qmd){.path-day-label}
+
+::: {.path-step}
+[0]{.path-num}
+
+::: {.path-body}
+[Setup](day0/m00-setup.qmd){.path-title}
+
+Install the environment, run the provided tests and serve this site locally.
+:::
+:::
+::: {.path-step}
+[1]{.path-num}
+
+::: {.path-body}
+[JAX warm-up](day0/m01-jax-warmup.qmd){.path-title}
+
+`grad`, `vmap`, `jit` and `lax.scan`, explicit random keys, a numerically stable
+`logsumexp` and a batched Gaussian log-density.
+:::
+:::
+::: {.path-step}
+[2]{.path-num}
+
+::: {.path-body}
+[Diagnostic](day0/m02-diagnostic.qmd){.path-title}
+
+An auto-graded check of the prerequisites: Gaussian conditioning, change of variables,
+matrix calculus, Jensen's inequality. The page says what to review for each failure.
+:::
+:::
+::: {.path-step}
+[2b]{.path-num}
+
+::: {.path-body}
+[Bayesian inference from first principles](day0/m02b-foundations.qmd){.path-title} [Conceptual anchor]{.chip}
+
+Bayes' rule from the product rule, then the whole workshop in miniature on a
+two-parameter model: an exact grid posterior, a Gaussian fit by minimising a divergence,
+and a random-walk sampler.
+:::
+:::
+:::
+::: {.path-day}
+[Day 1 · Exponential families](day1/m03-expfam-core.qmd){.path-day-label}
+
+::: {.path-step}
+[3]{.path-num}
+
+::: {.path-body}
+[Exponential-family core](day1/m03-expfam-core.qmd){.path-title}
+
+One interface for Bernoulli, Categorical, Gaussian, Gamma and Dirichlet: the
+log-partition, mean parameters as its gradient and Fisher information as its Hessian,
+all by automatic differentiation.
+:::
+:::
+::: {.path-step}
+[4]{.path-num}
+
+::: {.path-body}
+[KL divergence and Bregman geometry](day1/m04-kl-bregman.qmd){.path-title}
+
+Closed-form KL divergence as the Bregman divergence of the log-partition, why KL is
+asymmetric, and how to map mean parameters back to natural ones.
+:::
+:::
+::: {.path-step}
+[5]{.path-num}
+
+::: {.path-body}
+[Conjugacy](day1/m05-conjugacy.qmd){.path-title}
+
+Posterior updates as addition of sufficient statistics, with the marginal likelihood
+and posterior predictive in closed form for four conjugate pairs.
+:::
+:::
+:::
+::: {.path-day}
+[Day 2 · Variational inference](day2/m06-cavi.qmd){.path-day-label}
+
+::: {.path-step}
+[6]{.path-num}
+
+::: {.path-body}
+[ELBO and CAVI](day2/m06-cavi.qmd){.path-title}
+
+Derive the evidence lower bound and fit a Bayesian Gaussian mixture by coordinate
+ascent, with an ELBO that must never decrease.
+:::
+:::
+::: {.path-step}
+[7]{.path-num}
+
+::: {.path-body}
+[Gradient estimators](day2/m07-gradient-estimators.qmd){.path-title}
+
+Score-function against reparameterisation gradients on Bayesian logistic regression,
+with their variance measured rather than asserted.
+:::
+:::
+::: {.path-step}
+[8]{.path-num}
+
+::: {.path-body}
+[Black-box VI engine](day2/m08-bbvi-engine.qmd){.path-title}
+
+Bijectors and their log-Jacobians, a hand-written Adam and minibatch stochastic VI: one
+`fit` function for any differentiable log joint.
+:::
+:::
+:::
+::: {.path-day}
+[Day 3 · Modern MCMC](day3/m09-hmc-core.qmd){.path-day-label}
+
+::: {.path-step}
+[9]{.path-num}
+
+::: {.path-body}
+[MH and Hamiltonian dynamics](day3/m09-hmc-core.qmd){.path-title}
+
+Random-walk Metropolis, then Hamiltonian Monte Carlo with a leapfrog integrator tested
+for reversibility and volume preservation.
+:::
+:::
+::: {.path-step}
+[10]{.path-num}
+
+::: {.path-body}
+[Adaptation](day3/m10-adaptation.qmd){.path-title}
+
+Dual-averaging step size and a windowed diagonal mass matrix, so the sampler tunes
+itself during warm-up.
+:::
+:::
+::: {.path-step}
+[11]{.path-num}
+
+::: {.path-body}
+[Diagnostics and comparison](day3/m11-diagnostics.qmd){.path-title}
+
+Split-$\hat R$, effective sample size and divergences across parallel chains; then HMC
+against your VI engine on the same posterior.
+:::
+:::
+:::
+::: {.path-day}
+[Day 4 · Probabilistic programming internals](day4/m12-effect-handlers.qmd){.path-day-label}
+
+::: {.path-step}
+[12]{.path-num}
+
+::: {.path-body}
+[Traces and effect handlers](day4/m12-effect-handlers.qmd){.path-title}
+
+A messenger stack of about 200 lines: `sample`, `param`, `trace`, `replay`,
+`condition`, `seed`, `substitute` and `block`.
+:::
+:::
+::: {.path-step}
+[13]{.path-num}
+
+::: {.path-body}
+[Inference through the PPL](day4/m13-ppl-inference.qmd){.path-title}
+
+An automatic Gaussian guide and automatic unconstraining, so your VI engine and your
+sampler run on any model written in your language.
+:::
+:::
+::: {.path-step}
+[14]{.path-num}
+
+::: {.path-body}
+[Amortised VI, a VAE](day4/m14-vae.qmd){.path-title}
+
+Encoder and decoder networks as `param` sites: a variational autoencoder on
+transcriptional programs, trained through your PPL.
+:::
+:::
+:::
+::: {.path-day}
+[Day 5 · Capstone, one track](day5/index.qmd){.path-day-label}
+
+::: {.path-step .path-step-track}
+[15a]{.path-num}
+
+::: {.path-body}
+[Normalising flows](day5/m15a-flows.qmd){.path-title}
+
+RealNVP coupling layers as a variational family for a funnel-shaped hierarchical
+posterior, checked against an HMC reference.
+:::
+:::
+::: {.path-step .path-step-track}
+[15b]{.path-num}
+
+::: {.path-body}
+[Score-based diffusion](day5/m15b-diffusion.qmd){.path-title}
+
+A forward noising process, denoising score matching and a reverse-time sampler on
+protein backbone torsion angles.
+:::
+:::
+::: {.path-step .path-step-track}
+[15c]{.path-num}
+
+::: {.path-body}
+[Structural causal models](day5/m15c-scm.qmd){.path-title}
+
+A `do` handler for your PPL, and counterfactuals by abduction, action and prediction on
+an ad-spend model.
+:::
+:::
+:::
+:::
+
+## What you will be able to do
+
+::: {.outcomes}
+- Derive Bayes' rule, the evidence and the evidence lower bound from first principles, and say what each term means.
+- Compute posteriors, marginal likelihoods and predictive distributions in closed form for conjugate exponential-family models.
+- Fit variational approximations by coordinate ascent and by stochastic gradients, and explain which gradient estimator has lower variance and why.
+- Implement Hamiltonian Monte Carlo with step-size and mass-matrix adaptation, and diagnose it with $\hat R$, effective sample size and divergences.
+- Build an effect-handler probabilistic programming language and run both variational inference and HMC through it.
+- Extend the toolkit in one research direction: normalising flows, score-based diffusion, or causal counterfactuals.
+:::
 
 ## Who this is for
 
@@ -41,13 +376,12 @@ terms, definitions, a derivation with a sentence per equation, a worked example 
 numbers, why it matters later, and common misconceptions. Read the Background before
 the Steps; the Steps assume it.
 
-## How the workshop works
+## How each module works
 
-Each day is organised into two or three modules. Each module page has the same eight
-parts:
+Each module page has the same eight parts:
 
 | Part | What it is |
-|---|---|
+|-----|---------------|
 | Overview | Why the module exists, what you build, how long it takes, which earlier modules it needs |
 | Learning objectives | Three to five checkable outcomes |
 | Background | The concepts and derivations, built from first principles, with a worked example |
@@ -57,45 +391,24 @@ parts:
 | Going deeper | Primary references, with a note on which to read first |
 | Troubleshooting | Numerical failure modes and conceptual confusions, and how to recognise them |
 
+Each step follows one rhythm:
+
+::: {.rhythm}
+1. **Read** the Background: the problem, the derivation and a worked example with numbers.
+2. **Build** the step in `workshop/`, replacing its `raise NotImplementedError`.
+3. **Sanity-check** the result in the REPL against the expected value the step gives.
+4. **Test** with `pytest tests/mXX -k stepN`. The module is done when `pytest tests/mXX` passes.
+:::
+
 You edit files in `workshop/`. Every function you must write is marked
 `raise NotImplementedError  # Module X, Step Y`. Signatures and docstrings are fixed; the
-tests in `tests/mXX/` call them. A step is done when `pytest tests/mXX -k stepY` passes.
-A module is done when `pytest tests/mXX` passes.
+tests in `tests/mXX/` call them.
 
 Reference implementations live in `solutions/`. Instructors may withhold that directory.
 If you have it, `pytest tests/mXX --solutions` runs the same tests against it.
 
 Facilitators: see the [facilitator guide](instructor/facilitator-guide.qmd) and
 [day schedules](instructor/day-schedules.qmd).
-
-## The map
-
-The whole workshop answers one question: given a model $p(x, \theta)$ and data $x$, how
-do we compute expectations under the posterior $p(\theta \mid x)$ when the posterior
-has no closed form? Each day is one answer.
-
-| Day | Answer | What you build |
-|---|---|---|
-| 0 | Set up, learn the tools, see the problem exactly on a tiny model | JAX idioms; a grid posterior, a Gaussian fit by divergence, a random-walk sampler |
-| 1 | Exact answers exist for one class of models | Exponential families, KL divergences, conjugate updates |
-| 2 | Optimise over a family of tractable distributions | CAVI, gradient estimators, a black-box VI engine |
-| 3 | Sample from the posterior with a Markov chain | Hamiltonian Monte Carlo, adaptation, diagnostics |
-| 4 | Automate the bookkeeping so one model serves every algorithm | An effect-handler PPL, automatic unconstraining, a VAE |
-| 5 | Push one of three research directions | Flows, diffusion, or causal inference |
-
-## Schedule
-
-| Day | Theme | Modules | Time |
-|---|---|---|---|
-| 0 | Before you arrive | [Setup](day0/m00-setup.qmd), [JAX warm-up](day0/m01-jax-warmup.qmd), [Diagnostic](day0/m02-diagnostic.qmd), [Bayesian inference from first principles](day0/m02b-foundations.qmd) | 6 h |
-| 1 | Exponential families and variational geometry | [Exponential-family core](day1/m03-expfam-core.qmd), [KL and Bregman geometry](day1/m04-kl-bregman.qmd), [Conjugacy](day1/m05-conjugacy.qmd) | 8 h |
-| 2 | Variational inference | [ELBO and CAVI](day2/m06-cavi.qmd), [Gradient estimators](day2/m07-gradient-estimators.qmd), [Black-box VI engine](day2/m08-bbvi-engine.qmd) | 8 h |
-| 3 | Modern MCMC | [MH and Hamiltonian dynamics](day3/m09-hmc-core.qmd), [Adaptation](day3/m10-adaptation.qmd), [Diagnostics and comparison](day3/m11-diagnostics.qmd) | 8 h |
-| 4 | Probabilistic programming internals | [Traces and effect handlers](day4/m12-effect-handlers.qmd), [Inference through the PPL](day4/m13-ppl-inference.qmd), [Amortised VI, a VAE](day4/m14-vae.qmd) | 8 h |
-| 5 | Capstone | [Choose a track](day5/index.qmd): [Normalising flows](day5/m15a-flows.qmd), [Score-based diffusion](day5/m15b-diffusion.qmd), or [Structural causal models](day5/m15c-scm.qmd); [report template](day5/report-template.qmd) | 7 h |
-
-The reading in each module is about a third of its time. Days 1 to 4 are long; the
-facilitator guide says what to trim for a seven-hour day.
 
 ## Datasets
 

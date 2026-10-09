@@ -1,5 +1,7 @@
 # Bayesian Inference from Scratch
 
+**Site: <https://project-delphi.github.io/bayesian-inference-workshop/>**
+
 A five-day self-paced workshop in modern approximate inference for engineers with no
 Bayesian background, built in the style of an AWS Workshop: a static Quarto site of
 modules with numbered hands-on steps. Every concept is derived from first principles on
@@ -45,16 +47,26 @@ pytest tests/m03 -k step2       # one step
 pytest tests/m03 --solutions    # same tests, reference implementation
 ```
 
+## Publishing
+
+The site is published to GitHub Pages by `.github/workflows/publish.yml`. Every pull
+request and every push to `main` runs two jobs: `test` (the solutions pass, `tests/m00`
+passes on the starter, every other test fails on it) and `render` (`quarto render site`,
+then `scripts/check_site.py`). A push to `main` then deploys the render that passed.
+Nothing rendered is committed; `site/_site/` is build output. Figures are committed and
+regenerated locally with `make figures`, not in CI.
+
 ## Layout
 
 ```
-site/        Quarto website source (`_quarto.yml`): one page per module, grouped by day
+site/        Quarto website source (`_quarto.yml`, `custom.scss`): one page per module, grouped by day
 workshop/    Starter package. Participants edit this. Stubs raise NotImplementedError.
 solutions/   Reference implementations with identical signatures. Instructors may withhold.
 tests/       pytest suites, tests/mXX/test_stepN_*.py
 notebooks/   Optional exploration notebooks (jupytext .py percent format)
 instructor/  Facilitator guide and day schedules (also rendered in the site)
-scripts/     check_starter_fails.py, make_starter.py, check_site.py
+scripts/     check_starter_fails.py, make_starter.py, make_figures.py, check_site.py
+.github/     publish.yml: test, render, deploy to GitHub Pages
 ```
 
 ## Modules
@@ -81,3 +93,7 @@ WORKSHOP_IMPL=solutions jupyter lab      # or omit the variable to use workshop/
 Pinned in `pyproject.toml`: jax 0.11.2, jaxlib 0.11.2, numpy 2.5.3, scipy 1.18.1,
 matplotlib 3.11.2, pytest 9.1.1. The site needs the Quarto CLI (1.6.40). GPU:
 `pip install -e ".[gpu]"`.
+
+## License
+
+Teaching text CC BY 4.0, code MIT; the vendored fonts are SIL OFL 1.1. See `LICENSE`.

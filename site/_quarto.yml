@@ -6,23 +6,53 @@ project:
     - widgets/_test.html
     - figures/*.png
     - figures/*.gif
+    # The vendored typefaces and their licences (fonts/_README.md). fonts.css itself is
+    # linked under format.html.css below; the woff2 files it names are reached from a
+    # CSS url(), which Quarto does not follow, so they must be resources.
+    - fonts/*.woff2
+    - fonts/OFL-*.txt
   preview:
     port: 8000
     browser: false
 website:
   title: Bayesian Inference from Scratch
-  description: A five-day hands-on workshop in modern approximate inference, built in JAX.
+  description: A five-day hands-on workshop in modern approximate inference for engineers, built from first principles in JAX.
+  site-url: https://project-delphi.github.io/bayesian-inference-workshop
+  repo-url: https://github.com/project-delphi/bayesian-inference-workshop
+  open-graph: true
+  bread-crumbs: false
   search:
     location: navbar
     type: overlay
   navbar:
+    background: primary
     left:
-    - text: Workshop
+    - text: Home
       href: index.qmd
-    - text: Instructor
-      href: instructor/facilitator-guide.qmd
+    - text: Start here
+      href: day0/m00-setup.qmd
+    - text: First principles
+      href: day0/m02b-foundations.qmd
+    - text: Glossary
+      href: reference/glossary.qmd
     - text: References
       href: reference/references.qmd
+    - text: Teach
+      href: instructor/facilitator-guide.qmd
+    right:
+    - icon: github
+      href: https://github.com/project-delphi/bayesian-inference-workshop
+      aria-label: Source on GitHub
+  page-footer:
+    left: "Bayesian Inference from Scratch · Built with [Quarto](https://quarto.org)"
+    center:
+    - text: Setup
+      href: day0/m00-setup.qmd
+    - text: Glossary
+      href: reference/glossary.qmd
+    - text: Troubleshooting
+      href: reference/troubleshooting-index.qmd
+    right: "[Text CC BY 4.0 · Code MIT](https://github.com/project-delphi/bayesian-inference-workshop/blob/main/LICENSE)"
   sidebar:
     style: docked
     search: false
@@ -101,20 +131,42 @@ website:
   page-navigation: true
 format:
   html:
+    # custom.scss holds the light palette and every rule; custom-dark.scss only overrides
+    # the palette. Quarto adds the light/dark toggle to the navbar.
     theme:
-    - cosmo
-    - styles.scss
+      light: [cosmo, custom.scss]
+      dark: [cosmo, custom.scss, custom-dark.scss]
+    css:
+    - fonts/fonts.css
+    # Wide enough for the longest display equations and the two-panel figures; the
+    # sidebar fits "Module 2b — Bayesian inference from first principles" on two lines.
+    grid:
+      sidebar-width: 270px
+      body-width: 850px
+      margin-width: 230px
+      gutter-width: 1.5rem
     toc: true
     toc-depth: 3
+    toc-title: On this page
     toc-location: right
+    anchor-sections: true
     number-sections: false
     code-copy: true
     code-overflow: wrap
+    highlight-style: a11y
     html-math-method: mathjax
     link-external-newwindow: true
+    # MathJax macros used across the pages, then: on a first visit follow the operating
+    # system's light/dark setting (Quarto 1.6 reads only this stored value; the navbar
+    # toggle overwrites it).
     include-in-header:
-      text: '<script>
-
+      text: |
+        <script>
         window.MathJax = { tex: { macros: { E: "\\mathbb{E}", R: "\\mathbb{R}", KL: "\\mathrm{KL}", dd: "\\,\\mathrm{d}", tr: "\\operatorname{tr}", diag: "\\operatorname{diag}", ELBO: "\\mathcal{L}" } } };
-
-        </script>'
+        try {
+          if (localStorage.getItem("quarto-color-scheme") === null &&
+              matchMedia("(prefers-color-scheme: dark)").matches) {
+            localStorage.setItem("quarto-color-scheme", "alternate");
+          }
+        } catch (e) {}
+        </script>
