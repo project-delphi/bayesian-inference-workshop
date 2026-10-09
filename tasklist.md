@@ -126,7 +126,8 @@ tests and notebook exist, `pytest tests/mXX --solutions` passes, and
 - [x] LICENSE: text CC BY 4.0, code MIT (as nlp-llms and tensors-workshop); footer says so
 - [x] Theme after nlp-llms: `site/custom.scss` tokens + rules, `site/custom-dark.scss` palette, light/dark toggle following the OS on first visit, vendored Inter + Source Serif 4, navy navbar with GitHub icon, footer, Previous/Next cards
 - [x] Landing page: hero, six day cards, module path, outcomes, step rhythm; existing reviewed prose kept
-- [x] Fixed six references broken by a wrapped line starting with a year (parsed as an ordered list); `check_site.py` now fails on `<ol start="NNN">`
+- [x] Fixed six references and six m02 quiz questions broken by a wrapped line starting with a list marker ("  2017.", "  (b)"), which Pandoc parses as a nested list; `check_site.py` now fails on such lines in the source
+- [x] PR #5 review fixes: `overflow-x: clip` scoped to the landing page; `$bi-primary` token (light in dark mode, so search and buttons stay readable); no literal colors in rules; theme follows the OS until the reader toggles; `widgets/_test.html` no longer deployed; one navbar color source; path rail joins across days; `check_site.py` checks the hero counts against the files
 - [x] `.github/workflows/publish.yml` (test, render, deploy); README, AGENTS.md updated
 - [ ] First deploy green and the live site checked in a browser
 

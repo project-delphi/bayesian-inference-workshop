@@ -15,7 +15,9 @@ Both are licensed under the SIL Open Font License 1.1; the licence texts are
 `OFL-Inter.txt` and `OFL-SourceSerif4.txt`, copied unmodified from `google/fonts`.
 
 `fonts.css` holds the `@font-face` rules; `_quarto.yml` links it under `format.html.css`
-and lists `fonts/**` as a project resource. Verify with:
+and lists `fonts/*.woff2` and `fonts/OFL-*.txt` as project resources, because a CSS
+`url()` is not followed by Quarto. A new font file type needs its own resource line.
+Verify with:
 
 ```bash
 shasum -a 256 site/fonts/*.woff2

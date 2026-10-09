@@ -7,8 +7,11 @@
 - every module page's Overview opens with "**Why this module exists.**", and every
   `### Step N — title` opens with "**What this computes.**" (checked in the source)
 - no leftover MkDocs syntax (`!!!`, `--8<--`) in the source pages
-- no ordered list numbered from 100 or more: a wrapped line that starts with a year
-  ("  2017. ...") inside a list item is parsed as a list, so the reference loses its tail
+- the landing page's hero counts (modules, capstone tracks, figures and animations,
+  interactive widgets) match the files in site/
+- no wrapped line that starts with an ordered-list marker ("  2017. ...", "  (b) ..."):
+  directly under a non-blank line inside a list item it becomes a nested list, and the
+  item loses its tail (checked in the source, pages and included instructor files)
 
 Exit status 1 on any failure. Run after `quarto render site`.
 """
@@ -29,7 +32,25 @@ STEP_HEADING = re.compile(r"^### Step \d+ — \S")
 ANY_STEP_HEADING = re.compile(r"^#+\s*Step\b")  # "## Steps" is the section, not a step
 OVERVIEW_HEADING = re.compile(r"^## Overview\b")
 FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
-YEAR_LIST = re.compile(r'<ol start="\d{3,}"')
+# Pandoc's list markers: 1. 1) (a) a. a) (iv) iv. -- after indentation, then a space.
+FACT = re.compile(r"\[\*\*(\d+)\*\* ([^\]]+)\]\{\.fact\}")  # [**19** modules]{.fact}
+LIST_MARKER = re.compile(r"^\s+(\d+[.)]|\(?[A-Za-z][.)]|\(?[ivxlcdm]+[.)])\s")
+
+
+def _outside_fences(lines: list[str]):
+    """(index, line) for every line that is not inside a fenced code block."""
+    fence = ""  # the opening run of backticks or tildes while inside a code block
+    for i, line in enumerate(lines):
+        m = FENCE.match(line)
+        if fence:
+            # Closes on the same character, at least as long, with no info string.
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not m.group(2).strip():
+                fence = ""
+            continue
+        if m:
+            fence = m.group(1)
+            continue
+        yield i, line
 
 
 def _next_paragraph(lines: list[str], i: int) -> str:
@@ -42,17 +63,7 @@ def template_errors(src: pathlib.Path) -> list[str]:
     rel = src.relative_to(ROOT)
     lines = src.read_text().splitlines()
     errors = []
-    fence = ""  # the opening run of backticks or tildes while inside a code block
-    for i, line in enumerate(lines):
-        m = FENCE.match(line)
-        if fence:
-            # Closes on the same character, at least as long, with no info string.
-            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not m.group(2).strip():
-                fence = ""
-            continue
-        if m:
-            fence = m.group(1)
-            continue
+    for i, line in _outside_fences(lines):
         if OVERVIEW_HEADING.match(line) and not _next_paragraph(lines, i).startswith(OVERVIEW_OPENER):
             errors.append(f"{rel}:{i + 1}: Overview does not open with {OVERVIEW_OPENER}")
         if ANY_STEP_HEADING.match(line):
@@ -62,6 +73,35 @@ def template_errors(src: pathlib.Path) -> list[str]:
                 errors.append(f"{rel}:{i + 1}: step does not open with {STEP_OPENER}")
     # A missing Overview section is reported by the rendered-HTML section check.
     return errors
+
+
+def landing_count_errors() -> list[str]:
+    """The hero's numbers on index.qmd against the files they count."""
+    facts = {label: int(n) for n, label in FACT.findall((SITE_SRC / "index.qmd").read_text())}
+    actual = {
+        "modules": len(list(SITE_SRC.glob("day*/m*.qmd"))),
+        "capstone tracks": len(list(SITE_SRC.glob("day5/m15*.qmd"))),
+        "figures and animations": len([*SITE_SRC.glob("figures/*.png"), *SITE_SRC.glob("figures/*.gif")]),
+        "interactive widgets": len([w for w in SITE_SRC.glob("widgets/*.js") if not w.name.startswith("_")]),
+    }
+    errors = []
+    for label, n in actual.items():
+        if label not in facts:
+            errors.append(f"site/index.qmd: the hero has no [**N** {label}]{{.fact}}")
+        elif facts[label] != n:
+            errors.append(f"site/index.qmd: the hero says {facts[label]} {label}; site/ has {n}")
+    return errors
+
+
+def wrapped_marker_errors(src: pathlib.Path) -> list[str]:
+    """Indented lines, directly under a non-blank line, that open with a list marker."""
+    rel = src.relative_to(ROOT)
+    lines = src.read_text().splitlines()
+    return [
+        f"{rel}:{i + 1}: wrapped line starts with a list marker; join it to the line above"
+        for i, line in _outside_fences(lines)
+        if i and lines[i - 1].strip() and LIST_MARKER.match(line)
+    ]
 
 
 class Collector(HTMLParser):
@@ -99,10 +139,9 @@ def main() -> int:
     if not OUT.exists():
         print("site/_site missing; run `quarto render site` first")
         return 1
-    texts = {p: p.read_text(errors="ignore") for p in OUT.rglob("*.html")}
-    pages = {p: Collector() for p in texts}
+    pages = {p: Collector() for p in OUT.rglob("*.html")}
     for p, c in pages.items():
-        c.feed(texts[p])
+        c.feed(p.read_text(errors="ignore"))
     for p, c in pages.items():
         rel = p.relative_to(OUT)
         for href in c.links:
@@ -122,14 +161,15 @@ def main() -> int:
                 ids = pages[tpath].ids if tpath in pages else set()
                 if frag not in ids:
                     errors.append(f"{rel}: missing anchor #{frag} in {tpath.relative_to(OUT)}")
-        if YEAR_LIST.search(texts[p]):
-            errors.append(f"{rel}: a source line starts with a year and became an ordered list")
         if re.match(r"day\d/m\d", str(rel)) and rel.name != "index.html":
             missing = [r for r in REQUIRED if not any(h.startswith(r) for h in c.h2)]
             if missing:
                 errors.append(f"{rel}: missing sections {missing}")
     for src in sorted(SITE_SRC.glob("day*/m*.qmd")):
         errors += template_errors(src)
+    for src in sorted([*SITE_SRC.rglob("*.qmd"), *(ROOT / "instructor").glob("*.md")]):
+        errors += wrapped_marker_errors(src)
+    errors += landing_count_errors()
     for src in SITE_SRC.rglob("*.qmd"):
         text = src.read_text()
         if re.search(r"^\s*!!!\s", text, re.M) or "--8<--" in text:

@@ -15,6 +15,7 @@ $bi-heading: #14263a !default;
 $bi-muted: #55616e !default;
 $bi-link: #1d5f8a !default;
 $bi-navy: #16324f !default; // navbar and hero band
+$bi-primary: #16324f !default; // Bootstrap's $primary: buttons, checks, search highlight
 $bi-on-navy: #ffffff !default;
 $bi-on-navy-muted: #c5d3e2 !default;
 $bi-accent: #c2410c !default;
@@ -27,7 +28,7 @@ $bi-figure-bg: transparent !default;
 $bi-figure-pad: 0 !default;
 $bi-shadow: 0 1px 2px rgba(20, 38, 58, 0.06), 0 4px 14px rgba(20, 38, 58, 0.05) !default;
 
-$primary: $bi-navy !default;
+$primary: $bi-primary !default;
 $body-bg: $bi-bg !default;
 $body-color: $bi-text !default;
 $link-color: $bi-link !default;
@@ -55,7 +56,6 @@ $font-size-root: 17px;
 body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  overflow-x: clip; // the landing hero bleeds to the viewport edge
 }
 
 main.content p,
@@ -275,7 +275,7 @@ blockquote {
 // ---------------------------------------------------------------------------
 
 .navbar {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba($bi-on-navy, 0.08);
 }
 
 .navbar-brand,
@@ -434,6 +434,8 @@ blockquote {
 // ---------------------------------------------------------------------------
 
 body.landing {
+  overflow-x: clip; // the hero bleeds to the viewport edge
+
   #title-block-header {
     display: none; // the hero carries the title
   }
@@ -499,7 +501,7 @@ body.landing {
     }
 
     code {
-      background: rgba(255, 255, 255, 0.12);
+      background: rgba($bi-on-navy, 0.12);
       color: $bi-on-navy;
     }
   }
@@ -513,7 +515,7 @@ body.landing {
 
   .hero-actions a {
     padding: 0.6rem 1.2rem;
-    border: 1px solid rgba(255, 255, 255, 0.45);
+    border: 1px solid rgba($bi-on-navy, 0.45);
     border-radius: 7px;
     color: $bi-on-navy;
     font-weight: 600;
@@ -522,7 +524,7 @@ body.landing {
 
     &:hover {
       border-color: $bi-on-navy;
-      background: rgba(255, 255, 255, 0.1);
+      background: rgba($bi-on-navy, 0.1);
     }
   }
 
@@ -543,7 +545,7 @@ body.landing {
     gap: 0.4rem 2.4rem;
     margin-top: 2.2rem;
     padding-top: 1.1rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.18);
+    border-top: 1px solid rgba($bi-on-navy, 0.18);
     color: $bi-on-navy-muted;
     font-size: 0.92rem;
 
@@ -693,6 +695,13 @@ body.landing {
     bottom: -0.3rem;
     width: 2px;
     background: $bi-border-strong;
+  }
+
+  // The last node of a day reaches across the day border to the next day's first node
+  // (the padding, margin and border between the days, plus the same 0.3rem overlap as
+  // above); the very last node has none.
+  .path-day:not(:last-child) &:last-child::before {
+    bottom: calc(-1.7rem - 1px);
   }
 
   .path-day:last-child &:last-child::before {

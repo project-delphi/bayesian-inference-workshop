@@ -3,7 +3,6 @@ project:
   output-dir: _site
   resources:
     - widgets/*.js
-    - widgets/_test.html
     - figures/*.png
     - figures/*.gif
     # The vendored typefaces and their licences (fonts/_README.md). fonts.css itself is
@@ -25,7 +24,7 @@ website:
     location: navbar
     type: overlay
   navbar:
-    background: primary
+    # Colors come from $navbar-bg in custom.scss and custom-dark.scss.
     left:
     - text: Home
       href: index.qmd
@@ -156,17 +155,21 @@ format:
     highlight-style: a11y
     html-math-method: mathjax
     link-external-newwindow: true
-    # MathJax macros used across the pages, then: on a first visit follow the operating
-    # system's light/dark setting (Quarto 1.6 reads only this stored value; the navbar
-    # toggle overwrites it).
+    # MathJax macros used across the pages, then the light/dark choice. Quarto 1.6 reads
+    # only the stored "quarto-color-scheme"; this script keeps it in step with the
+    # operating system until the reader uses the navbar toggle. bi-color-scheme-auto
+    # records the value set here: a stored value that differs from it was chosen by the
+    # reader (on this site or another Quarto site on the same origin) and is kept.
     include-in-header:
       text: |
         <script>
         window.MathJax = { tex: { macros: { E: "\\mathbb{E}", R: "\\mathbb{R}", KL: "\\mathrm{KL}", dd: "\\,\\mathrm{d}", tr: "\\operatorname{tr}", diag: "\\operatorname{diag}", ELBO: "\\mathcal{L}" } } };
         try {
-          if (localStorage.getItem("quarto-color-scheme") === null &&
-              matchMedia("(prefers-color-scheme: dark)").matches) {
-            localStorage.setItem("quarto-color-scheme", "alternate");
+          var os = matchMedia("(prefers-color-scheme: dark)").matches ? "alternate" : "default";
+          var stored = localStorage.getItem("quarto-color-scheme");
+          if (stored === null || stored === localStorage.getItem("bi-color-scheme-auto")) {
+            localStorage.setItem("quarto-color-scheme", os);
+            localStorage.setItem("bi-color-scheme-auto", os);
           }
         } catch (e) {}
         </script>
