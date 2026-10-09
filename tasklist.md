@@ -120,3 +120,16 @@ tests and notebook exist, `pytest tests/mXX --solutions` passes, and
 - Python 3.13.2, `uv` at /opt/homebrew/bin/uv
 - Pins chosen 2026-10-07: jax 0.11.2, numpy 2.5.3, scipy 1.18.1, matplotlib 3.11.2,
   pytest 9.1.1, mkdocs-material 9.7.7 (verify at Phase 1; adjust if wheels missing)
+
+## Phase 11 — Publish (user request 2026-10-08: "do the quarto site and host it on github pages; take inspiration from my other workshops")
+- [x] Repo made public (user decision; Pages is unavailable on private repos on this plan); Pages source set to GitHub Actions
+- [x] LICENSE: text CC BY 4.0, code MIT (as nlp-llms and tensors-workshop); footer says so
+- [x] Theme after nlp-llms: `site/custom.scss` tokens + rules, `site/custom-dark.scss` palette, light/dark toggle following the OS on first visit, vendored Inter + Source Serif 4, navy navbar with GitHub icon, footer, Previous/Next cards
+- [x] Landing page: hero, six day cards, module path, outcomes, step rhythm; existing reviewed prose kept
+- [x] Fixed six references and six m02 quiz questions broken by a wrapped line starting with a list marker ("  2017.", "  (b)"), which Pandoc parses as a nested list; `check_site.py` now fails on such lines in the source
+- [x] PR #5 review fixes: `overflow-x: clip` scoped to the landing page; `$bi-primary` token (light in dark mode, so search and buttons stay readable); no literal colors in rules; theme follows the OS until the reader toggles; `widgets/_test.html` no longer deployed; one navbar color source; path rail joins across days; `check_site.py` checks the hero counts against the files
+- [x] `.github/workflows/publish.yml` (test, render, deploy); README, AGENTS.md updated
+- [x] Second review fixes: list-marker check covers `(1)`, `#.`, upper-case Roman and years at the margin, and ignores capital initials; module path checked for every module page; theme no longer persists the OS value (removed after Quarto applies it; a toggle click restores it first); dark navbar color is a `$bi-navbar` token; workflow comment on concurrency corrected, render timeout, uv cache keyed on pyproject.toml
+- [x] CI found `tests/m11/test_step4_comparison.py` flaky across CPUs (0.161 vs a 0.15 bound; local 0.145, Monte Carlo error ~0.025 sd): bound set to 0.25 with the reasoning in the test
+- [ ] First deploy green and the live site checked in a browser
+

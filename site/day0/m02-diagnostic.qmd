@@ -292,29 +292,23 @@ compares hashes.
    $\E[f(X)] \;?\; f(\E[X])$. (a) $\le$ (b) $\ge$ (c) $=$
    *Idea: for a convex curve, the chord between two points lies above the curve, and an
    average of function values is a point on such chords.*
-2. The log-partition function $A(\eta)$ of a minimal exponential family is
-   (a) concave (b) linear in $\eta$ (c) strictly convex.
+2. The log-partition function $A(\eta)$ of a minimal exponential family is (a) concave (b) linear in $\eta$ (c) strictly convex.
    *Idea: what is the second derivative of a log-normaliser? Module 3 derives it; the
    answer to question 3 is the key.*
-3. $\nabla^2 A(\eta)$ equals (a) $\mathrm{Cov}_\eta[t(x)]$, the Fisher information
-   (b) $\E_\eta[t(x)]$ (c) the Hessian of $\log h$.
+3. $\nabla^2 A(\eta)$ equals (a) $\mathrm{Cov}_\eta[t(x)]$, the Fisher information (b) $\E_\eta[t(x)]$ (c) the Hessian of $\log h$.
    *Idea: differentiate $\log\int h\,e^{\eta^\top t}$ twice under the integral sign and
    recognise a variance.*
-4. If $y = f(x)$ with $f$ a diffeomorphism, then $p_Y(y) = p_X(f^{-1}(y))$ times
-   (a) $|\det J_f(x)|$ (b) $|\det J_{f^{-1}}(y)|$ (c) $1$.
+4. If $y = f(x)$ with $f$ a diffeomorphism, then $p_Y(y) = p_X(f^{-1}(y))$ times (a) $|\det J_f(x)|$ (b) $|\det J_{f^{-1}}(y)|$ (c) $1$.
    *Idea: see the derivation above; which map's Jacobian, evaluated where?*
-5. Under $x \sim p(x; \theta)$, the expected score $\E[\nabla_\theta \log p(x; \theta)]$ is
-   (a) the Fisher information (b) dependent on $\theta$ (c) $0$.
+5. Under $x \sim p(x; \theta)$, the expected score $\E[\nabla_\theta \log p(x; \theta)]$ is (a) the Fisher information (b) dependent on $\theta$ (c) $0$.
    *Idea: differentiate $\int p(x;\theta)\,\dd x = 1$ with respect to $\theta$ and
    rewrite $\nabla p$ as $p\nabla\log p$.*
-6. For $x \sim \mathcal N(\mu, \Sigma)$ and a matrix $M$, $\mathrm{Cov}(Mx)$ is
-   (a) $M\Sigma M^\top$ (b) $M^\top\Sigma M$ (c) $M\Sigma$.
+6. For $x \sim \mathcal N(\mu, \Sigma)$ and a matrix $M$, $\mathrm{Cov}(Mx)$ is (a) $M\Sigma M^\top$ (b) $M^\top\Sigma M$ (c) $M\Sigma$.
    *Idea: write out $\E[(Mx - M\mu)(Mx - M\mu)^\top]$.*
 7. Mutual information $I(X;Y)$ equals $\KL\big(p(x,y)\,\|\,\cdot\big)$ with the second
    argument (a) $p(x)p(y)$ (b) $p(x\mid y)$ (c) $p(y)$.
    *Idea: mutual information measures how far the joint is from independence.*
-8. The gradient of $f(x) = \log\sum_i e^{x_i}$ is (a) $e^{x}$ (b) $\mathrm{softmax}(x)$
-   (c) $1/\sum_i e^{x_i}$.
+8. The gradient of $f(x) = \log\sum_i e^{x_i}$ is (a) $e^{x}$ (b) $\mathrm{softmax}(x)$ (c) $1/\sum_i e^{x_i}$.
    *Idea: differentiate; the result is a ratio that sums to one.*
 
 ```bash

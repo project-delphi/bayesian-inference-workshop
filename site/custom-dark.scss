@@ -1,0 +1,26 @@
+/*-- scss:defaults --*/
+
+// The dark palette. This file overrides the tokens of custom.scss and holds no rules:
+// change how something looks in custom.scss, change its dark color here.
+$bi-bg: #10161d;
+$bi-surface: #18212b;
+$bi-raised: #151c25;
+$bi-border: #2a3644;
+$bi-border-strong: #415062;
+$bi-text: #d5dce4;
+$bi-heading: #eef2f6;
+$bi-muted: #9aa7b5;
+$bi-link: #86bde6;
+$bi-navy: #1b3450;
+$bi-primary: #86bde6; // light on the dark page: buttons, checks, search highlight
+$bi-on-navy: #f3f6f9;
+$bi-on-navy-muted: #b4c4d6;
+$bi-accent: #e8834f;
+$bi-on-accent: #1b120b;
+$bi-code: #f0b48a;
+$bi-code-bg: #161e27;
+// The figures are opaque white PNGs: give them a white frame to sit in.
+$bi-figure-bg: #ffffff;
+$bi-figure-pad: 0.5rem;
+$bi-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 18px rgba(0, 0, 0, 0.3);
+$bi-navbar: #0c1218;

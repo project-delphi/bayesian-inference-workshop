@@ -571,8 +571,8 @@ sampler computing Day 5's quantity.
 - Balke and Pearl. "Probabilistic Evaluation of Counterfactual Queries." *AAAI*, 1994.
   The twin-network construction.
 - Pearl. "Causal Inference in Statistics: An Overview." *Statistics Surveys* 3, 2009.
-- Tran and Blei. "Implicit Causal Models for Genome-wide Association Studies." *ICLR*,
-  2018. Causal models expressed in a probabilistic programming system.
+- Tran and Blei. "Implicit Causal Models for Genome-wide Association Studies." *ICLR*, 2018.
+  Causal models expressed in a probabilistic programming system.
 
 ## Troubleshooting
 

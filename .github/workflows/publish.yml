@@ -1,0 +1,100 @@
+name: Publish
+
+# Every pull request and every push to main runs the tests and renders the site. Only a
+# push to main (or a manual run on main) deploys, and what it deploys is the render that
+# just passed its checks. Nothing rendered is committed: site/_site is build output.
+#
+# Pages must be set to deploy from GitHub Actions (Settings > Pages > Source).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  # A new push cancels a running pull-request run. A running run on main is never
+  # cancelled, because it may be part-way through a deploy; a run still queued behind it
+  # is replaced by the newest push, which then tests and deploys the newer commit.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # The definition of done from AGENTS.md: every test passes against solutions/, the
+  # provided helpers (tests/m00) pass on the starter, and every other test fails on it.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v7
+
+      # An exact tag: setup-uv publishes no floating major tag. There is no uv.lock; the
+      # exact pins live in pyproject.toml, so the wheel cache is keyed on it.
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Install pinned dependencies
+        run: make setup
+
+      - name: Tests against the solutions
+        run: make test-solutions
+
+      - name: Provided helpers pass on the starter
+        run: .venv/bin/pytest tests/m00
+
+      - name: Every other test fails on the starter
+        run: make check-starter
+
+  # The pages have no executable cells and the figures are committed (make figures), so
+  # rendering needs Quarto and the standard library only.
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          # Pinned to the version the site is authored with (README). Bump together
+          # with a local re-render.
+          version: 1.6.40
+
+      - name: Render
+        run: quarto render site
+
+      - name: Check links, anchors and the module template
+        run: python3 scripts/check_site.py
+
+      # Uploaded on pull requests too, so a render that cannot be packaged fails there
+      # and not afterwards on main. Only `deploy` consumes it.
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/_site
+
+  # A separate job so that `pages: write` and `id-token: write` sit on nothing else, and
+  # so that a pull request can never deploy.
+  deploy:
+    needs: [test, render]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    # One deploy at a time, and never cancel one in flight.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

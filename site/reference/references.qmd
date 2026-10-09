@@ -26,8 +26,7 @@ findable by title and author; nothing here is invented.
 
 ## Markov chain Monte Carlo
 
-- Betancourt. "A Conceptual Introduction to Hamiltonian Monte Carlo." arXiv:1701.02434,
-  2017.
+- Betancourt. "A Conceptual Introduction to Hamiltonian Monte Carlo." arXiv:1701.02434, 2017.
 - Neal. "MCMC Using Hamiltonian Dynamics." In *Handbook of Markov Chain Monte Carlo*,
   Chapman and Hall/CRC, 2011.
 - Hoffman and Gelman. "The No-U-Turn Sampler: Adaptively Setting Path Lengths in
@@ -40,8 +39,7 @@ findable by title and author; nothing here is invented.
   arXiv:1312.0906, 2013.
 - Girolami and Calderhead. "Riemann Manifold Langevin and Hamiltonian Monte Carlo
   Methods." *JRSS B* 73(2), 2011.
-- Leimkuhler and Reich. *Simulating Hamiltonian Dynamics.* Cambridge University Press,
-  2004.
+- Leimkuhler and Reich. *Simulating Hamiltonian Dynamics.* Cambridge University Press, 2004.
 - Nesterov. "Primal-dual Subgradient Methods for Convex Problems." *Mathematical
   Programming* 120, 2009.
 - Stan Development Team. *Stan Reference Manual*, chapter "MCMC Sampling".
@@ -54,8 +52,7 @@ findable by title and author; nothing here is invented.
 - van de Meent, Paige, Yang and Wood. *An Introduction to Probabilistic Programming.*
   arXiv:1809.10756, 2018.
 - Plotkin and Pretnar. "Handlers of Algebraic Effects." *ESOP*, 2009.
-- Cremer, Li and Duvenaud. "Inference Suboptimality in Variational Autoencoders." *ICML*,
-  2018.
+- Cremer, Li and Duvenaud. "Inference Suboptimality in Variational Autoencoders." *ICML*, 2018.
 
 ## Flows, diffusion and causality
 
@@ -96,8 +93,7 @@ findable by title and author; nothing here is invented.
 - Pearl, Glymour and Jewell. *Causal Inference in Statistics: A Primer.* Wiley, 2016.
 - Pearl. "Causal Inference in Statistics: An Overview." *Statistics Surveys* 3, 2009.
 - Balke and Pearl. "Probabilistic Evaluation of Counterfactual Queries." *AAAI*, 1994.
-- Tran and Blei. "Implicit Causal Models for Genome-wide Association Studies." *ICLR*,
-  2018.
+- Tran and Blei. "Implicit Causal Models for Genome-wide Association Studies." *ICLR*, 2018.
 
 ## Books
 

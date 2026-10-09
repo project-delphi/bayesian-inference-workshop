@@ -1,0 +1,22 @@
+/* Vendored variable fonts. See _README.md in this directory for provenance and licences.
+
+   Declared in a plain stylesheet rather than custom.scss: Quarto resolves a Sass url()
+   against the project directory, not against site_libs/bootstrap/ where the theme
+   compiles to. A plain stylesheet is copied verbatim and sits beside the files it names,
+   so the bare url()s below resolve at any page depth. */
+
+@font-face {
+  font-family: "Inter";
+  src: url("inter-latin.woff2") format("woff2");
+  font-weight: 400 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("source-serif-4-latin.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}

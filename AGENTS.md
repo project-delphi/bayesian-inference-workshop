@@ -42,6 +42,21 @@ See `PLAN.md` for the module list and `tasklist.md` for build progress.
 - Target: modern laptop browsers only. Do not spend effort on mobile or desktop-app
   layout tuning, responsive breakpoints or print styles.
 - Pages are `.qmd` with a YAML `title:`; the sidebar text lives in `site/_quarto.yml`.
+- Published to https://project-delphi.github.io/bayesian-inference-workshop/ by
+  `.github/workflows/publish.yml` (jobs `test`, `render`, `deploy`; deploy only from
+  `main`). Never commit `site/_site/`. Quarto is pinned to 1.6.40 in the workflow and
+  the README; bump both together.
+- Look and feel follows the author's other workshops (nlp-llms, tensors-workshop):
+  cosmo plus `site/custom.scss`, where every color is a `$bi-*` token and every rule
+  lives; `site/custom-dark.scss` overrides the tokens only. Use tokens, never literal
+  colors, in rules. Fonts (Inter, Source Serif 4) are vendored in `site/fonts/`
+  (`_README.md` there has provenance); no font CDN.
+- The landing page (`site/index.qmd`, body class `landing`, no sidebar) has a hero, day
+  cards and a module path. `check_site.py` compares the hero's counts (modules, capstone
+  tracks, figures and animations, interactive widgets) with the files; update the hero
+  and the path when a module, figure or widget is added or removed.
+- Files under `site/` that are not pages start with `_` (`_MANIFEST.md`, `_EMBED.md`,
+  `fonts/_README.md`) so Quarto does not render them.
 - Quarto writes `site/.gitignore` on render. It is deliberately untracked (ignored from
   the root `.gitignore`, which repeats its patterns); do not commit it.
 - Module pages follow the eight-part template exactly (Overview, Learning objectives,
@@ -93,8 +108,10 @@ See `PLAN.md` for the module list and `tasklist.md` for build progress.
   `site/widgets/_EMBED.md` documents each widget and its snippet. Embed as a
   `::: {.callout-note title="Interactive"}` paragraph saying what to do and what to look
   for, followed by a ```` ```{=html} ```` block with a `div.bi-widget` and a module
-  script. `site/widgets/_test.html` is a dev page, not part of the site. `_quarto.yml`
-  lists `widgets/**` and `figures/**` as project resources.
+  script. `site/widgets/_test.html` is a dev page, not part of the site: it is not a
+  resource, so open it by serving `site/` (see `_EMBED.md`). `_quarto.yml` lists
+  `widgets/*.js`, `figures/*.png`, `figures/*.gif` and the font files as project
+  resources.
 
 ## Layout
 ```

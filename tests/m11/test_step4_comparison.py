@@ -38,7 +38,11 @@ def test_step4_compare_structure_with_laplace_as_stand_in():
     mode, cov = laplace(lj, jnp.zeros(5))
     out = compare_hmc_vs_vi(chains, mode, jnp.sqrt(jnp.diag(cov)))
     assert out["mean_diff_in_sd"].shape == (5,) and out["sd_ratio"].shape == (5,)
-    assert float(jnp.abs(out["mean_diff_in_sd"]).max()) < 0.15
+    # The Laplace mode is not the posterior mean: here they differ by up to ~0.13 sd. The
+    # HMC mean adds Monte Carlo error of ~0.025 sd per coordinate (ESS ~1500-2000), and
+    # floating-point differences between CPUs change the chains, so the bound leaves about
+    # four standard errors above the gap (0.15 failed on a CI runner at 0.161).
+    assert float(jnp.abs(out["mean_diff_in_sd"]).max()) < 0.25
     assert 0 <= float(out["max_abs_corr"]) <= 1
     # the churn posterior has a non-trivial correlation structure that mean-field ignores
     assert float(out["max_abs_corr"]) > 0.1

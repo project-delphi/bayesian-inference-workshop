@@ -618,8 +618,8 @@ $\E[\min(1, e^{-\Delta H})]$ is an expectation too, over the momentum draw, and 
 
 ## Going deeper
 
-- Betancourt, "A Conceptual Introduction to Hamiltonian Monte Carlo", arXiv:1701.02434,
-  2017. Sections 2–4 for the geometry of typical sets and why Hamiltonian flow explores
+- Betancourt, "A Conceptual Introduction to Hamiltonian Monte Carlo", arXiv:1701.02434, 2017.
+  Sections 2–4 for the geometry of typical sets and why Hamiltonian flow explores
   them. Start here if the physical picture above felt too quick.
 - Neal, "MCMC Using Hamiltonian Dynamics", in *Handbook of Markov Chain Monte Carlo*,
   Chapman and Hall/CRC, 2011. The clearest derivation of leapfrog's properties and of

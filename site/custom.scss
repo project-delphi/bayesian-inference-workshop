@@ -1,0 +1,809 @@
+/*-- scss:defaults --*/
+
+// Navy for structure, one warm accent. The accent is the figures' and widgets'
+// learner/approximation color (#c2410c), so the chrome and the plots agree.
+// Every color is a token below. custom-dark.scss overrides the tokens and nothing
+// else, so a rule written here works in both themes; a literal color in a rule
+// will be wrong in one of them.
+$bi-bg: #ffffff !default; // page
+$bi-surface: #f6f8fa !default; // code blocks, table heads, footer
+$bi-raised: #ffffff !default; // cards
+$bi-border: #dfe5ec !default;
+$bi-border-strong: #c3ccd6 !default;
+$bi-text: #1f2933 !default;
+$bi-heading: #14263a !default;
+$bi-muted: #55616e !default;
+$bi-link: #1d5f8a !default;
+$bi-navy: #16324f !default; // hero band, card tops, path nodes
+$bi-navbar: #16324f !default;
+$bi-primary: #16324f !default; // Bootstrap's $primary: buttons, checks, search highlight
+$bi-on-navy: #ffffff !default;
+$bi-on-navy-muted: #c5d3e2 !default;
+$bi-accent: #c2410c !default;
+$bi-on-accent: #ffffff !default;
+$bi-code: #8a3b12 !default; // inline code
+$bi-code-bg: #f5f7f9 !default;
+// Figures are opaque white PNGs and widgets draw on white; in the dark theme they
+// get a matching light frame instead of a hard edge.
+$bi-figure-bg: transparent !default;
+$bi-figure-pad: 0 !default;
+$bi-shadow: 0 1px 2px rgba(20, 38, 58, 0.06), 0 4px 14px rgba(20, 38, 58, 0.05) !default;
+
+$primary: $bi-primary !default;
+$body-bg: $bi-bg !default;
+$body-color: $bi-text !default;
+$link-color: $bi-link !default;
+$border-color: $bi-border !default;
+$headings-color: $bi-heading !default;
+$navbar-bg: $bi-navbar !default;
+$navbar-fg: $bi-on-navy !default;
+$code-color: $bi-code !default;
+$code-bg: $bi-code-bg !default;
+$code-block-bg: $bi-code-bg !default;
+$footer-bg: $bi-surface !default;
+
+$font-family-sans-serif: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+$font-family-monospace: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+$headings-font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+$headings-font-weight: 600;
+$font-size-root: 17px;
+
+/*-- scss:rules --*/
+
+// ---------------------------------------------------------------------------
+// Reading
+// ---------------------------------------------------------------------------
+
+body {
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+main.content p,
+main.content li {
+  line-height: 1.65;
+}
+
+main.content li + li {
+  margin-top: 0.2rem;
+}
+
+h1.title {
+  font-size: 2.4rem;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+}
+
+h2 {
+  margin-top: 2.6rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid $bi-border;
+  font-size: 1.6rem;
+  letter-spacing: -0.005em;
+}
+
+h3 {
+  margin-top: 2.2rem;
+  font-size: 1.25rem;
+}
+
+h4 {
+  font-family: $font-family-sans-serif;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.subtitle,
+.lead {
+  color: $bi-muted;
+}
+
+main.content a {
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+  text-decoration-color: rgba($bi-link, 0.4);
+
+  &:hover {
+    text-decoration-color: currentColor;
+  }
+}
+
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible {
+  outline: 2px solid $bi-accent;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+// Small-caps label above card titles, the hero title and the table of contents.
+.eyebrow {
+  display: block;
+  font-size: 0.74rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: $bi-muted;
+}
+
+.chip {
+  display: inline-block;
+  padding: 0.08rem 0.55rem;
+  border: 1px solid $bi-border;
+  border-radius: 999px;
+  background: $bi-surface;
+  color: $bi-muted;
+  font-size: 0.76rem;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+// Tables: light rules, no heavy borders.
+main.content table {
+  font-size: 0.9rem;
+  border-color: $bi-border;
+
+  thead th {
+    border-bottom: 1.5px solid $bi-border-strong;
+    font-size: 0.8rem;
+    font-weight: 650;
+    letter-spacing: 0.03em;
+    color: $bi-muted;
+    vertical-align: bottom;
+  }
+
+  td,
+  th {
+    padding: 0.5rem 0.75rem;
+    vertical-align: top;
+  }
+
+  > :not(caption) > * > * {
+    background-color: transparent;
+    color: inherit;
+  }
+
+  tbody tr:last-child td {
+    border-bottom-color: $bi-border-strong;
+  }
+}
+
+// Code. Inline code is tinted; blocks sit on a bordered surface.
+code {
+  font-size: 0.875em;
+}
+
+p code:not(.sourceCode),
+li code:not(.sourceCode),
+td code:not(.sourceCode) {
+  padding: 0.1em 0.32em;
+  border-radius: 4px;
+}
+
+div.sourceCode,
+pre:not(.sourceCode) {
+  border: 1px solid $bi-border;
+  border-radius: 7px;
+  background: $bi-code-bg;
+}
+
+pre:not(.sourceCode) {
+  padding: 0.75rem 0.9rem;
+  color: $bi-text;
+  font-size: 0.86rem;
+  line-height: 1.55;
+
+  code {
+    color: inherit;
+    font-size: inherit;
+  }
+}
+
+div.sourceCode pre.sourceCode {
+  padding: 0.75rem 0.9rem;
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.code-copy-button {
+  opacity: 0.55;
+
+  &:hover {
+    opacity: 1;
+  }
+}
+
+// Display math gets air and scrolls sideways inside its own box if it must.
+mjx-container[display="true"] {
+  margin: 1.1rem 0 !important;
+  padding: 0.15rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+// Figures and GIFs.
+main.content .quarto-figure img,
+main.content figure img {
+  padding: $bi-figure-pad;
+  border-radius: 8px;
+  background: $bi-figure-bg;
+}
+
+main.content figcaption,
+main.content .figure-caption {
+  margin-top: 0.6rem;
+  color: $bi-muted;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  text-align: left;
+}
+
+main.content .quarto-figure {
+  margin: 1.6rem 0;
+}
+
+blockquote {
+  border-left: 3px solid $bi-border-strong;
+  color: $bi-muted;
+}
+
+// Callouts keep Quarto's colors per type (Checkpoint, Challenge, Troubleshooting,
+// Jacobian check, Interactive, Answer); only the frame is tuned.
+.callout {
+  margin: 1.5rem 0;
+  border-radius: 7px;
+
+  &.callout-style-simple,
+  &.callout-style-default {
+    border-color: $bi-border;
+    border-left-width: 4px;
+  }
+
+  .callout-body {
+    font-size: 0.95rem;
+  }
+}
+
+// The interactive widgets (site/widgets/) draw on a white panel in both themes.
+.bi-widget {
+  margin: 1rem 0 1.6rem;
+  box-shadow: $bi-shadow;
+}
+
+// ---------------------------------------------------------------------------
+// Site chrome: navbar, sidebar, table of contents, page navigation, footer
+// ---------------------------------------------------------------------------
+
+.navbar {
+  border-bottom: 1px solid rgba($bi-on-navy, 0.08);
+}
+
+.navbar-brand,
+.navbar-title {
+  font-family: $headings-font-family;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.navbar .nav-link {
+  font-size: 0.92rem;
+}
+
+.navbar .nav-link.active {
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: $bi-accent;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.5em;
+}
+
+#quarto-sidebar {
+  font-size: 0.88rem;
+
+  .sidebar-item-section > .sidebar-item-container .sidebar-item-text {
+    font-family: $headings-font-family;
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.3;
+    color: $bi-heading;
+  }
+
+  .sidebar-item-section {
+    margin-top: 0.9rem;
+  }
+
+  ul.sidebar-section .sidebar-item {
+    margin: 0;
+  }
+
+  ul.sidebar-section .sidebar-link {
+    display: block;
+    padding: 0.22rem 0.6rem;
+    border-left: 2px solid $bi-border;
+    color: $bi-muted;
+    line-height: 1.35;
+
+    &:hover {
+      color: $bi-link;
+      border-left-color: $bi-border-strong;
+    }
+
+    &.active {
+      border-left-color: $bi-accent;
+      color: $bi-heading;
+      font-weight: 600;
+    }
+  }
+}
+
+// "On this page".
+#TOC,
+.sidebar nav[role="doc-toc"] {
+  font-size: 0.84rem;
+
+  > h2,
+  #toc-title {
+    @extend .eyebrow;
+    margin: 0 0 0.5rem;
+    padding: 0;
+    border: 0;
+    font-family: $font-family-sans-serif;
+  }
+
+  ul a {
+    border-left: 2px solid $bi-border;
+    color: $bi-muted;
+    line-height: 1.35;
+    padding-top: 0.2rem;
+    padding-bottom: 0.2rem;
+  }
+
+  ul a.active,
+  ul a:hover {
+    border-left-color: $bi-accent;
+    color: $bi-heading;
+  }
+}
+
+// Previous / next page at the foot of every page, in sidebar order.
+.page-navigation {
+  gap: 1rem;
+  margin-top: 3.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid $bi-border;
+
+  .nav-page {
+    flex: 1 1 0;
+  }
+
+  .nav-page a.pagination-link {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    height: 100%;
+    padding: 0.8rem 1rem;
+    border: 1px solid $bi-border;
+    border-radius: 9px;
+    background: $bi-raised;
+    color: $bi-heading;
+    text-decoration: none;
+    transition: border-color 0.12s, box-shadow 0.12s;
+
+    &:hover {
+      border-color: $bi-link;
+      box-shadow: $bi-shadow;
+    }
+
+    i {
+      display: none;
+    }
+
+    &::before {
+      @extend .eyebrow;
+    }
+
+    .nav-page-text {
+      font-family: $headings-font-family;
+      font-size: 1.05rem;
+      font-weight: 600;
+    }
+  }
+
+  .nav-page-previous a.pagination-link::before {
+    content: "\2190\00a0 Previous";
+  }
+
+  .nav-page-next a.pagination-link {
+    align-items: flex-end;
+    text-align: right;
+
+    &::before {
+      content: "Next \00a0\2192";
+    }
+  }
+}
+
+.nav-footer {
+  border-top: 1px solid $bi-border;
+  color: $bi-muted;
+  font-size: 0.82rem;
+}
+
+// ---------------------------------------------------------------------------
+// Landing page (index.qmd; body class `landing`)
+// ---------------------------------------------------------------------------
+
+body.landing {
+  overflow-x: clip; // the hero bleeds to the viewport edge
+
+  #title-block-header {
+    display: none; // the hero carries the title
+  }
+
+  // The id selector outranks Quarto's `#quarto-content > *` top padding, so the
+  // hero meets the navbar.
+  #quarto-content > main.content {
+    max-width: 1080px;
+    margin-inline: auto;
+    margin-top: 0;
+    padding-top: 0;
+  }
+
+  main.content section.level2 > h2 {
+    margin-top: 3.2rem;
+    border: 0;
+    font-size: 1.85rem;
+  }
+
+  .section-lede {
+    max-width: 44rem;
+    color: $bi-muted;
+  }
+}
+
+.hero {
+  // Full-bleed band: stretch to the viewport edges, keep the text aligned.
+  margin: 0 calc(50% - 50vw) 2.2rem;
+  padding: 3.6rem calc(50vw - 50%) 2.4rem;
+  background: $bi-navy;
+  color: $bi-on-navy;
+
+  .eyebrow {
+    color: $bi-on-navy-muted;
+  }
+
+  h1 {
+    max-width: 18em;
+    margin: 0.6rem 0 0.5rem;
+    border: 0;
+    color: $bi-on-navy;
+    font-size: 3.2rem;
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+  }
+
+  .hero-subtitle {
+    display: block;
+    font-family: $headings-font-family;
+    font-size: 1.4rem;
+    font-style: italic;
+    color: $bi-on-navy-muted;
+  }
+
+  .hero-lead {
+    max-width: 44rem;
+    margin-top: 1.3rem;
+    font-size: 1.08rem;
+    color: $bi-on-navy;
+
+    p {
+      line-height: 1.6;
+    }
+
+    code {
+      background: rgba($bi-on-navy, 0.12);
+      color: $bi-on-navy;
+    }
+  }
+
+  .hero-actions p {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    margin: 1.6rem 0 0;
+  }
+
+  .hero-actions a {
+    padding: 0.6rem 1.2rem;
+    border: 1px solid rgba($bi-on-navy, 0.45);
+    border-radius: 7px;
+    color: $bi-on-navy;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background-color 0.12s, border-color 0.12s;
+
+    &:hover {
+      border-color: $bi-on-navy;
+      background: rgba($bi-on-navy, 0.1);
+    }
+  }
+
+  .hero-actions a.btn-primary-action {
+    border-color: $bi-accent;
+    background: $bi-accent;
+    color: $bi-on-accent;
+
+    &:hover {
+      background: lighten($bi-accent, 5%);
+      border-color: lighten($bi-accent, 5%);
+    }
+  }
+
+  .facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 2.4rem;
+    margin-top: 2.2rem;
+    padding-top: 1.1rem;
+    border-top: 1px solid rgba($bi-on-navy, 0.18);
+    color: $bi-on-navy-muted;
+    font-size: 0.92rem;
+
+    p {
+      display: contents;
+    }
+
+    strong {
+      margin-right: 0.15rem;
+      color: $bi-on-navy;
+      font-family: $headings-font-family;
+      font-size: 1.35rem;
+      font-weight: 600;
+    }
+  }
+}
+
+// The days, one card each: the question the day answers.
+.day-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin: 1.4rem 0 1.2rem;
+}
+
+.day-card {
+  display: flex;
+  flex-direction: column;
+  padding: 1.1rem 1.15rem 1rem;
+  border: 1px solid $bi-border;
+  border-top: 3px solid $bi-navy;
+  border-radius: 10px;
+  background: $bi-raised;
+  transition: box-shadow 0.12s;
+
+  &:hover {
+    box-shadow: $bi-shadow;
+  }
+
+  p {
+    margin: 0;
+  }
+
+  .eyebrow {
+    color: $bi-accent;
+  }
+
+  a.day-card-title {
+    display: block;
+    margin: 0.3rem 0 0.7rem;
+    font-family: $headings-font-family;
+    font-size: 1.2rem;
+    font-weight: 600;
+    line-height: 1.25;
+    color: $bi-heading;
+    text-decoration: none;
+
+    &:hover {
+      color: $bi-link;
+      text-decoration: underline;
+    }
+  }
+
+  // The question takes the remaining height, so the footers line up.
+  p:has(.day-card-question) {
+    flex: 1;
+  }
+
+  .day-card-question {
+    display: block;
+    font-family: $headings-font-family;
+    font-style: italic;
+    font-size: 1.02rem;
+    line-height: 1.45;
+    color: $bi-text;
+  }
+
+  .day-card-span {
+    display: block;
+    margin-top: 0.9rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid $bi-border;
+    color: $bi-muted;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+}
+
+// The module path: one rail, a numbered node per module, grouped by day.
+.path {
+  margin: 1.6rem 0 1rem;
+}
+
+.path-day {
+  display: grid;
+  grid-template-columns: 12rem 1fr;
+  column-gap: 1.5rem;
+  padding: 0.3rem 0;
+
+  > p {
+    grid-column: 1;
+    grid-row: 1 / span 20;
+    margin: 0;
+    padding-top: 0.55rem;
+  }
+
+  a.path-day-label {
+    position: sticky;
+    top: 5rem;
+    font-family: $headings-font-family;
+    font-size: 1.08rem;
+    font-weight: 600;
+    color: $bi-heading;
+    text-decoration: none;
+
+    &:hover {
+      color: $bi-link;
+      text-decoration: underline;
+    }
+  }
+
+  & + .path-day {
+    margin-top: 0.4rem;
+    padding-top: 0.7rem;
+    border-top: 1px solid $bi-border;
+  }
+}
+
+.path-step {
+  grid-column: 2;
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+  column-gap: 1rem;
+  padding-bottom: 1.05rem;
+
+  p {
+    margin: 0;
+  }
+
+  // The rail: from this node down to the next one.
+  &::before {
+    content: "";
+    position: absolute;
+    left: calc(1.25rem - 1px);
+    top: 2.5rem;
+    bottom: -0.3rem;
+    width: 2px;
+    background: $bi-border-strong;
+  }
+
+  // The last node of a day reaches across the day border to the next day's first node
+  // (the padding, margin and border between the days, plus the same 0.3rem overlap as
+  // above); the very last node has none.
+  .path-day:not(:last-child) &:last-child::before {
+    bottom: calc(-1.7rem - 1px);
+  }
+
+  .path-day:last-child &:last-child::before {
+    display: none;
+  }
+
+  .path-num {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border: 2px solid $bi-navy;
+    border-radius: 50%;
+    background: $bi-navy;
+    color: $bi-on-navy;
+    font-size: 0.85rem;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+
+  // The capstone tracks: pick one.
+  &.path-step-track .path-num {
+    border-color: $bi-accent;
+    background: $bi-bg;
+    color: $bi-accent;
+  }
+
+  .path-body {
+    padding-top: 0.3rem;
+  }
+
+  a.path-title {
+    margin-right: 0.5rem;
+    font-family: $headings-font-family;
+    font-size: 1.12rem;
+    font-weight: 600;
+    color: $bi-heading;
+    text-decoration: none;
+
+    &:hover {
+      color: $bi-link;
+      text-decoration: underline;
+    }
+  }
+
+  .path-body > p:last-child {
+    margin-top: 0.1rem;
+    max-width: 42rem;
+    color: $bi-muted;
+    font-size: 0.93rem;
+    line-height: 1.5;
+  }
+}
+
+// "What you will be able to do": two columns of outcomes.
+.outcomes ul {
+  columns: 2;
+  column-gap: 2.5rem;
+  padding-left: 1.1rem;
+
+  li {
+    break-inside: avoid;
+    margin-bottom: 0.45rem;
+  }
+}
+
+// Read, Build, Test, Check: four numbered cards from an ordered list.
+.rhythm ol {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin: 1.2rem 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: rhythm;
+
+  li {
+    counter-increment: rhythm;
+    margin: 0;
+    padding: 0.9rem 1rem 1rem;
+    border: 1px solid $bi-border;
+    border-radius: 10px;
+    background: $bi-surface;
+    font-size: 0.93rem;
+    line-height: 1.5;
+
+    &::before {
+      content: counter(rhythm);
+      display: block;
+      margin-bottom: 0.3rem;
+      font-family: $headings-font-family;
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: $bi-accent;
+    }
+
+    strong {
+      color: $bi-heading;
+    }
+  }
+}
