@@ -10,7 +10,7 @@ body-classes: landing
 ---
 
 ::: {.hero}
-[A five-day workshop · Built in JAX]{.eyebrow}
+[Genial Labs · A five-day workshop · Built in JAX]{.eyebrow}
 
 # Bayesian Inference from Scratch {.unnumbered .unlisted}
 

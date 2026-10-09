@@ -43,7 +43,7 @@ website:
       href: https://github.com/project-delphi/bayesian-inference-workshop
       aria-label: Source on GitHub
   page-footer:
-    left: "Bayesian Inference from Scratch · Built with [Quarto](https://quarto.org)"
+    left: "Bayesian Inference from Scratch · Genial Labs · Built with [Quarto](https://quarto.org)"
     center:
     - text: Setup
       href: day0/m00-setup.qmd
