@@ -42,6 +42,8 @@ See `PLAN.md` for the module list and `tasklist.md` for build progress.
 - Target: modern laptop browsers only. Do not spend effort on mobile or desktop-app
   layout tuning, responsive breakpoints or print styles.
 - Pages are `.qmd` with a YAML `title:`; the sidebar text lives in `site/_quarto.yml`.
+- Quarto writes `site/.gitignore` on render. It is deliberately untracked (ignored from
+  the root `.gitignore`, which repeats its patterns); do not commit it.
 - Module pages follow the eight-part template exactly (Overview, Learning objectives,
   Background, Steps, Checkpoint, Challenge, Going deeper, Troubleshooting).
 - Overview opens with "**Why this module exists.**". Background is split into `###`
